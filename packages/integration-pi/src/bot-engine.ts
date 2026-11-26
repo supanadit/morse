@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import {
+  asRecord,
   writePrivateJson,
   type BotEngineCapabilities,
   type BotProviderRecord,
@@ -148,4 +150,35 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
   return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : undefined;
+}
+
+/**
+ * Snapshots the machine's global pi configuration into one bot's isolated
+ * store: every `auth.json` entry and every `models.json` provider the bot does
+ * not already declare. The bot wins on conflict, so a key the wizard pasted
+ * is never overwritten — and the copy is whole records, verbatim, because the
+ * frontend never sees a secret to send back.
+ *
+ * Missing global files are nothing to copy, not a failure; a malformed one is
+ * thrown, so a save says what it could not read instead of silently dropping
+ * half a bot.
+ */
+export function importPiGlobalConfig(botRoot: string): boolean {
+  const globalDir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+  const botDir = join(botRoot, 'config');
+  const globalAuth = readJsonObject(join(globalDir, AUTH_FILE)) ?? {};
+  const botAuth = readJsonObject(join(botDir, AUTH_FILE)) ?? {};
+  writePrivateJson(join(botDir, AUTH_FILE), { ...globalAuth, ...botAuth });
+
+  const globalProviders = asRecord(readJsonObject(join(globalDir, MODELS_FILE))?.['providers']) ?? {};
+  const botModels = readJsonObject(join(botDir, MODELS_FILE)) ?? {};
+  const botProviders = asRecord(botModels['providers']) ?? {};
+  const merged: Record<string, unknown> = { ...botProviders };
+  for (const [id, entry] of Object.entries(globalProviders)) {
+    if (merged[id] === undefined) {
+      merged[id] = entry;
+    }
+  }
+  writePrivateJson(join(botDir, MODELS_FILE), { ...botModels, providers: merged });
+  return true;
 }

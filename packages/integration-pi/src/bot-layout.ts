@@ -17,7 +17,7 @@ import type {
   BotProviderRecord,
 } from '@morse/system';
 import { BOT_BUS_INSTRUCTION, asRecord, readText } from '@morse/system';
-import type { ModelInput } from '@morse/agent';
+import type { ModelInput, ThinkingLevel } from '@morse/agent';
 import {
   PI_BUS_EXTENSION_END,
   PI_BUS_EXTENSION_FILE,
@@ -139,6 +139,11 @@ export function piProviderEntry(provider: BotProviderRecord, kept: unknown): unk
       // pi defaults a model's modalities to `["text"]`, so a vision model has to
       // say so here or pi (and a bot's paste gate) treats it as text-only.
       ...(model.input === undefined ? {} : { input: [...model.input] }),
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+      ...(model.thinking === undefined ? {} : { thinkingLevelMap: model.thinking }),
+      // OpenCode-side variants survive a pi round-trip so a bot that moves
+      // engines keeps its thinking levels.
+      ...(model.thinkingLevels === undefined ? {} : { thinkingLevels: [...model.thinkingLevels] }),
     })),
   };
 }
@@ -207,6 +212,12 @@ function readProviders(path: string): BotProviderRecord[] {
           const input = Array.isArray(entry['input'])
             ? entry['input'].filter((one): one is ModelInput => typeof one === 'string')
             : undefined;
+          const thinking = asRecord(entry['thinkingLevelMap']) as
+            | Partial<Record<ThinkingLevel, string | null>>
+            | undefined;
+          const thinkingLevels = Array.isArray(entry['thinkingLevels'])
+            ? entry['thinkingLevels'].filter((one): one is ThinkingLevel => typeof one === 'string')
+            : undefined;
           return [
             {
               id: modelId,
@@ -216,6 +227,11 @@ function readProviders(path: string): BotProviderRecord[] {
                 : {}),
               ...(typeof entry['maxTokens'] === 'number' ? { maxTokens: entry['maxTokens'] } : {}),
               ...(input === undefined ? {} : { input }),
+              ...(typeof entry['reasoning'] === 'boolean' ? { reasoning: entry['reasoning'] } : {}),
+              ...(thinking === undefined ? {} : { thinking }),
+              ...(thinkingLevels === undefined || thinkingLevels.length === 0
+                ? {}
+                : { thinkingLevels }),
             },
           ];
         }),

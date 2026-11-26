@@ -109,14 +109,14 @@ describe('ProvidersPanel', () => {
       formName: { set(value: string): void };
       formBaseURL: { set(value: string): void };
       formKey: { set(value: string): void };
-      models: { update(fn: (list: unknown[]) => unknown[]): void };
+      customModels: { set(value: unknown[]): void };
       save(): Promise<void>;
     };
     panel.formId.set('my-new');
     panel.formName.set('New gateway');
     panel.formBaseURL.set('https://llm.example.com/v1');
     panel.formKey.set('sk-abc');
-    panel.models.update(() => [{ id: 'model-a', name: 'Model A', context: '100000', output: '8000', input: new Set(['text', 'image']), reasoning: true, thinking: new Set(['low', 'high']) }]);
+    panel.customModels.set([{ id: 'model-a', name: 'Model A', contextWindow: 100000, maxTokens: 8000, input: ['text', 'image'], reasoning: true, thinkingLevels: ['low', 'high'], thinking: { low: 'low', high: 'high' } }]);
     await panel.save();
 
     expect(morse.requestHostCommand).toHaveBeenCalledWith(
@@ -135,96 +135,6 @@ describe('ProvidersPanel', () => {
         key: 'sk-abc',
       }),
     );
-  });
-
-  it('toggles capabilities for one model without changing the others', async () => {
-    const { fixture, host } = await render();
-    (host.querySelector('button.card.custom') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const panel = fixture.componentInstance as unknown as {
-      models: { update(fn: (list: unknown[]) => unknown[]): void };
-    };
-    panel.models.update(() => [
-      { id: 'a', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
-      { id: 'b', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
-    ]);
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const state = fixture.componentInstance as unknown as {
-      hasInput(index: number, input: string): boolean;
-    };
-    expect(state.hasInput(0, 'image')).toBe(false);
-    expect(state.hasInput(1, 'image')).toBe(false);
-
-    // Open the first row's capabilities popup: with nested `@for` loops the
-    // template must pass the model row, not the inner option index.
-    const rows = () => [...host.querySelectorAll('tr.model-main')] as HTMLElement[];
-    (rows()[0]?.querySelector('.col-caps .menu-trigger') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const imageOption = [...host.querySelectorAll('.menu-row')].find(
-      (row) => row.textContent?.includes('Vision (images)'),
-    ) as HTMLButtonElement;
-    imageOption.click();
-    fixture.detectChanges();
-    expect(state.hasInput(0, 'image')).toBe(true);
-    expect(state.hasInput(1, 'image')).toBe(false);
-    // Multi-select: the popup stays open for the next pick.
-    expect(host.querySelector('.menu')).not.toBeNull();
-  });
-
-  it('disables the thinking trigger until reasoning is on', async () => {
-    const { fixture, host } = await render();
-    await openCard(fixture, host, 'My gateway');
-    const think = host.querySelector('.col-think .menu-trigger') as HTMLButtonElement;
-    expect(think.disabled).toBe(true);
-
-    // Enabling reasoning unlocks the levels popup at the engine default.
-    const caps = host.querySelector('.col-caps .menu-trigger') as HTMLButtonElement;
-    caps.click();
-    fixture.detectChanges();
-    const reasoning = [...host.querySelectorAll('.menu-row')].find(
-      (row) => row.textContent?.trim() === 'Reason',
-    ) as HTMLButtonElement;
-    reasoning.click();
-    fixture.detectChanges();
-    expect(think.disabled).toBe(false);
-    expect(think.title).toContain('Default');
-  });
-
-  it('picks non-adjacent thinking levels and resets to default', async () => {
-    const { fixture, host } = await render();
-    (host.querySelector('button.card.custom') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const panel = fixture.componentInstance as unknown as {
-      models: { update(fn: (list: unknown[]) => unknown[]): void };
-      thinkLabel(index: number): string;
-    };
-    panel.models.update(() => [
-      { id: 'a', name: '', context: '', output: '', input: new Set(['text']), reasoning: true, thinking: new Set() },
-    ]);
-    fixture.detectChanges();
-
-    (host.querySelector('.col-think .menu-trigger') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const levelOption = (name: string) =>
-      [...host.querySelectorAll('.menu-row')].find(
-        (row) => row.textContent?.trim() === name,
-      ) as HTMLButtonElement;
-    levelOption('low').click();
-    fixture.detectChanges();
-    levelOption('high').click();
-    fixture.detectChanges();
-    // No range to satisfy: low and high stay picked without medium.
-    expect(panel.thinkLabel(0)).toBe('low, high');
-    fixture.detectChanges();
-    const brains = host.querySelectorAll('.col-think .menu-trigger svg.brain');
-    expect(brains).toHaveLength(2);
-
-    (host.querySelector('.menu-reset') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(panel.thinkLabel(0)).toBe('Default');
   });
 
   it('opens a custom provider in the full model editor, not the key form', async () => {

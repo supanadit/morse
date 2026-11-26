@@ -1,4 +1,4 @@
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentGatewayFactory } from '@morse/agent';
 import {
@@ -8,7 +8,9 @@ import {
   type BotProviderRecord,
   type MorseLogger,
 } from '@morse/system';
-import { openCodeProviderEntry } from './bot-layout.js';
+import { resolveEngineContext } from '@morse/engine-config';
+import { openCodeConfigPath, openCodeProviderEntry } from './bot-layout.js';
+import { importOpenCodeGoCredential } from './internal/go-auth.js';
 import { botUserSpaceEnv } from './bot-user-space.js';
 import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
@@ -28,8 +30,9 @@ import { OpenCodeEventStream } from './internal/event-stream.js';
  *   logs and auth (data root);
  * - the MCP/command administration, pinned to the same config directory the
  *   server reads (`<botRoot>/config/opencode`), so an edit lands in the bot;
- * - credentials, written by Morse into the bot's data dir — never copied from
- *   the user's config.
+ * - credentials, written by Morse into the bot's data dir — the wizard's own
+ *   keys, or a snapshot of the user's global store taken on explicit request
+ *   ("Use global configuration"), never a live reference to it.
  *
  * Unlike pi there is no process-per-session to point at a directory, so the
  * engine — one long-lived server — is created per bot and every session lives
@@ -291,6 +294,77 @@ export const OPENCODE_PACKAGE: Record<NonNullable<BotProviderRecord['api']>, str
   'anthropic-messages': '@opencode/ai/providers/anthropic-compatible',
   'google-generative-ai': '@opencode/ai/providers/google',
 };
+
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Snapshots the machine's global OpenCode configuration into one bot's
+ * isolated store: every `auth.json` entry and every custom provider the bot
+ * does not already declare, copied verbatim. The bot wins on conflict, so a
+ * key the wizard pasted is never overwritten — and the copy is whole records,
+ * because the frontend never sees a secret to send back.
+ *
+ * The Go login comes along best-effort through the same import a checked
+ * "use my login" box would run; no login is nothing to copy, not a failure.
+ * Missing global files are likewise success-with-nothing, while a malformed
+ * one throws so a save says what it could not read.
+ */
+export async function importOpenCodeGlobalConfig(
+  botRoot: string,
+  logger: MorseLogger,
+): Promise<boolean> {
+  const context = resolveEngineContext({ env: process.env });
+  const botAuthPath = join(botRoot, 'sessions', 'opencode', 'auth.json');
+  const globalAuth = readJsonObject(join(context.xdgDataHome, 'opencode', 'auth.json')) ?? {};
+  const botAuth = readJsonObject(botAuthPath) ?? {};
+  writePrivateJson(botAuthPath, { ...globalAuth, ...botAuth });
+
+  const globalConfig =
+    readJsonObject(join(context.xdgConfigHome, 'opencode', 'opencode.json')) ?? {};
+  const globalProviders: Record<string, unknown> = {
+    ...(typeof globalConfig['provider'] === 'object' &&
+    globalConfig['provider'] !== null &&
+    !Array.isArray(globalConfig['provider'])
+      ? (globalConfig['provider'] as Record<string, unknown>)
+      : {}),
+    ...(typeof globalConfig['providers'] === 'object' &&
+    globalConfig['providers'] !== null &&
+    !Array.isArray(globalConfig['providers'])
+      ? (globalConfig['providers'] as Record<string, unknown>)
+      : {}),
+  };
+  const botPath = openCodeConfigPath(botRoot);
+  const botConfig = readJsonObject(botPath) ?? {};
+  const botBlockKey =
+    typeof botConfig['provider'] === 'object' &&
+    botConfig['provider'] !== null &&
+    !Array.isArray(botConfig['provider'])
+      ? 'provider'
+      : 'providers';
+  const botProviders =
+    typeof botConfig[botBlockKey] === 'object' &&
+    botConfig[botBlockKey] !== null &&
+    !Array.isArray(botConfig[botBlockKey])
+      ? { ...(botConfig[botBlockKey] as Record<string, unknown>) }
+      : {};
+  for (const [id, entry] of Object.entries(globalProviders)) {
+    if (botProviders[id] === undefined) {
+      botProviders[id] = entry;
+    }
+  }
+  writeConfigJson(botPath, { ...botConfig, [botBlockKey]: botProviders });
+
+  await importOpenCodeGoCredential(botRoot, logger);
+  return true;
+}
 
 /**
  * Temp file beside the target, then rename: the config is either the previous

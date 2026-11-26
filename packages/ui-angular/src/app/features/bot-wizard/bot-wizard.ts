@@ -16,27 +16,30 @@ import type {
   BotProviderConfig,
   BotProviderCredentialInput,
   BotProviderInput,
-  ModelInput,
   ModelOption,
+  ProviderInfo,
+  ProviderModel,
+  ProviderStatus,
   ThinkingLevel,
 } from '@morse/protocol';
-import type { BotProviderModel } from '@morse/system';
+import { asProviderStatus } from '@morse/protocol';
 import { MorseService } from '../../host/morse.service';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { BotFace } from '../../ui/bot-face/bot-face';
 import { moodForBot } from '../../ui/bot-face/bot-mood';
+import { ModelInputs } from '../model-picker/model-inputs';
+import { BRAIN_PATHS } from '../thinking-picker/thinking-brain';
+import { LEVEL_COLORS, ModelsTable } from '../providers/models-table';
 import { BotMcpStep, parseEnvText } from './bot-mcp-step';
 import {
   DEFAULT_TOOLS,
   ENGINE_TOOLS,
-  KNOWN_PROVIDERS,
   PROVIDER_APIS,
   THINKING_LEVELS,
   USERNAME_PATTERN,
   nextRequestId,
   parseEnvVars,
   usernameFrom,
-  type KnownProviderPreset,
 } from './bot-wizard-data';
 
 /** One OpenCode subagent the reader defined: a name and its own system prompt. */
@@ -45,8 +48,8 @@ interface SubagentRow {
   prompt: string;
 }
 
-/** One custom provider the reader is adding, with its models as they resolve. */
-interface ProviderDraft {
+/** One bot-local custom provider, isolated to this bot. Same UX as Settings. */
+interface LocalProvider {
   id: string;
   label: string;
   api: BotProviderApi;
@@ -55,8 +58,7 @@ interface ProviderDraft {
   credentialKind: 'stored' | 'env';
   apiKey: string;
   envName: string;
-  /** Discovered (`/models`) plus hand-entered rows; what the bot's config gets. */
-  models: BotProviderModel[];
+  models: ProviderModel[];
 }
 
 
@@ -77,7 +79,7 @@ interface ProviderDraft {
   selector: 'morse-bot-wizard',
   templateUrl: './bot-wizard.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BotFace, BotMcpStep],
+  imports: [BotFace, BotMcpStep, ModelsTable, ModelInputs],
   styleUrl: './bot-wizard.css',
 })
 export class BotWizard {
@@ -102,35 +104,44 @@ export class BotWizard {
   protected readonly description = signal('');
   protected readonly avatar = signal('');
   protected readonly engineKind = signal('');
-  /** Catalog provider keys: `{provider, apiKey}` rows, written to `auth.json`. */
+  /** Catalog provider keys: `{provider, apiKey}` rows, isolated to this bot. */
   protected readonly credentials = signal<{ provider: string; apiKey: string }[]>([]);
-  /** Use the machine's OpenCode Go login instead of a pasted API key. */
-  protected readonly useGoAuth = signal(false);
-  /** Custom providers, written into the engine's own provider config. */
-  protected readonly providers = signal<ProviderDraft[]>([]);
-  /** The custom-provider form, while it is open. */
-  protected readonly addingProvider = signal(false);
-  protected readonly draftId = signal('');
-  protected readonly draftLabel = signal('');
-  protected readonly draftApi = signal<BotProviderApi>('openai-completions');
-  protected readonly draftBaseUrl = signal('');
-  protected readonly draftKeyKind = signal<'stored' | 'env'>('stored');
-  protected readonly draftApiKey = signal('');
-  protected readonly draftEnvName = signal('');
-  /** Manual model rows for the custom provider being added. */
-  protected readonly draftModels = signal<BotProviderModel[]>([]);
   /**
-   * The providers Edit bot read out of the engine's own config, with the model
-   * fields a reader can correct. Kept apart from `providers` (the create flow's
-   * drafts) because these carry no credential: an edit rewrites the fields around
-   * the key the engine already stores.
+   * Snapshot this machine's global engine configuration into this bot on
+   * submit: stored keys and custom providers, copied host-side so the secrets
+   * never travel. The bot wins on conflict and stays isolated afterwards.
    */
-  protected readonly engineProviders = signal<BotProviderConfig[]>([]);
-  protected readonly draftModelId = signal('');
-  /** True while a discovery request for the draft is in flight. */
-  protected readonly draftProbing = signal(false);
-  /** The discovery failure, said on the draft card instead of a toast. */
-  protected readonly draftError = signal<string | null>(null);
+  protected readonly useGlobalConfig = signal(false);
+  /**
+   * The engine's provider catalog, read live from Settings' own source
+   * (`providerStatus`): the reader picks a model from it, and pastes the key
+   * beside it — the key stays isolated to this bot, never read from the host.
+   */
+  protected readonly catalog = signal<ProviderStatus | undefined>(undefined);
+  protected readonly catalogLoading = signal(false);
+  /** Why the provider catalog could not be read, said on the section. */
+  protected readonly catalogError = signal<string | null>(null);
+  /** Which provider's models the detail shows: a global id or a local one. */
+  protected readonly pickedProvider = signal('');
+  /** The provider search box, filtering the cards. */
+  protected readonly providerQuery = signal('');
+  /** Bot-local custom providers, isolated to this bot. Same editor as Settings. */
+  protected readonly localProviders = signal<LocalProvider[]>([]);
+  /** The local-provider editor, while it is open; a null target means a new one. */
+  protected readonly editorOpen = signal(false);
+  protected readonly editorTarget = signal<string | null>(null);
+  protected readonly editorId = signal('');
+  protected readonly editorLabel = signal('');
+  protected readonly editorApi = signal<BotProviderApi>('openai-completions');
+  protected readonly editorBaseUrl = signal('');
+  protected readonly editorKeyKind = signal<'stored' | 'env'>('stored');
+  protected readonly editorApiKey = signal('');
+  protected readonly editorEnvName = signal('');
+  protected readonly editorModels = signal<ProviderModel[]>([]);
+  /** True while a discovery request for the editor is in flight. */
+  protected readonly editorProbing = signal(false);
+  /** The discovery failure, said on the editor instead of a toast. */
+  protected readonly editorError = signal<string | null>(null);
 
   protected readonly envVars = signal('');
   /** Values set only for this bot, one `KEY=value` per line. */
@@ -167,16 +178,8 @@ export class BotWizard {
   protected readonly modelKey = signal('');
   /** The thinking level picked; empty means "Engine default" — stores nothing. */
   protected readonly thinking = signal<ThinkingLevel | ''>('');
-  /** The catalog probe this wizard is waiting on, keyed by request id. */
-  private readonly probeRequestId = signal<string | null>(null);
-  /** Engine + credentials + env the last probe ran with; a changed one re-probes. */
-  private readonly probeSignature = signal<string | null>(null);
-  /** Why the catalog probe failed, said on the Model section instead of nowhere. */
-  private readonly catalogError = signal<string | null>(null);
-  /** The notice the last catalog probe started with, so only a new one is a failure. */
-  private probeNotice: { level: string; text: string; at: number } | undefined;
-  /** The discovery in flight on the draft, keyed by its request id. */
-  private readonly draftRequestId = signal<string | null>(null);
+  /** The discovery in flight on the editor, keyed by its request id. */
+  private readonly editorRequestId = signal<string | null>(null);
   /** The bot being created, while the roster has not named it yet. */
   protected readonly pending = signal<string | null>(null);
   protected readonly createError = signal<string | null>(null);
@@ -184,14 +187,15 @@ export class BotWizard {
   /** The roster as it stood at submit, so an edit knows when its save landed. */
   private readonly rosterAtSubmit = signal<{ bots: unknown[] } | null>(null);
   private readonly noticeAtSubmit = signal<{ level: string; text: string; at: number } | null>(null);
-  /** The model search box, filtering the provider's list. */
+  /** The model search box, filtering the picked provider's list. */
   protected readonly modelFilter = signal('');
-  /** Which provider's key row was last touched, so its models are in front. */
-  protected readonly activeProvider = signal('');
 
   protected readonly engines = this.morse.engines;
-  protected readonly thinkingLevels = THINKING_LEVELS;
   protected readonly providerApis = PROVIDER_APIS;
+  /** The thinking picker's brain, for the model list's badges. */
+  protected readonly brainPaths = BRAIN_PATHS;
+  /** Brain colour per thinking level, the composer's own palette. */
+  protected readonly levelColors = LEVEL_COLORS;
   /** The faces a reader may pick instead of the one their handle draws. */
   protected readonly faceChoices = Array.from({ length: 11 }, (_, index) => `face:${index + 2}`);
 
@@ -256,125 +260,189 @@ export class BotWizard {
     return this.engineKind() === 'opencode' ? [...(DEFAULT_TOOLS['opencode'] ?? [])] : undefined;
   }
 
-  /** The presets this engine's catalog carries, so the chips never lie. */
-  protected readonly knownProviders = computed(() =>
-    KNOWN_PROVIDERS.filter((preset) => preset.engines.includes(this.engineKind())),
-  );
-
-  /** The models the catalog probe answered with, for this wizard's request. */
-  protected readonly probedModels = computed<ModelOption[]>(() => {
-    const requestId = this.probeRequestId();
-    return requestId === null ? [] : (this.morse.bot.models()[requestId] ?? []);
-  });
-  protected readonly probeReady = computed(() => {
-    const requestId = this.probeRequestId();
-    return requestId !== null && this.morse.bot.models()[requestId] !== undefined;
-  });
-
   /**
-   * The providers this engine can reach, one key row each.
-   *
-   * The list is the engine's own catalog of providers, not only the ones the last
-   * probe answered with: an engine lists its whole model table and a key is what
-   * unlocks part of it, so the keys have to be there before any answer arrives.
-   * Anything the answer names that the catalog does not (a provider of the
-   * reader's own) joins the list at the end.
+   * The providers the picker shows: the engine's public catalog plus this
+   * bot's local custom providers. A local id shadows the global one it
+   * replaces, so an edited endpoint reads as one card. Global custom
+   * endpoints stay hidden until "Use global configuration" is checked —
+   * unchecked means isolated: not even a private endpoint's name leaks in.
    */
-  protected readonly providerRows = computed(() => {
-    const known = this.knownProviders();
-    const answering = new Map<string, number>();
-    for (const model of this.allModels()) {
-      answering.set(model.provider, (answering.get(model.provider) ?? 0) + 1);
+  protected readonly pickerProviders = computed(() => {
+    const global = this.catalog()?.providers ?? [];
+    const localIds = new Set(this.localProviders().map((provider) => provider.id));
+    // Isolated keys only: a "Connected" badge from the host's own store would
+    // lie here — the bot never reads it. A card reads as keyed when this bot
+    // holds a key for it.
+    const keyed = new Set(
+      this.credentials()
+        .filter((row) => row.provider.trim().length > 0 && row.apiKey.trim().length > 0)
+        .map((row) => row.provider.trim()),
+    );
+    interface PickerCard {
+      id: string;
+      label: string;
+      hint: string;
+      models: number;
+      connected: boolean;
+      /** True when the badge comes from the global snapshot, not a pasted key. */
+      viaGlobal: boolean;
+      local: boolean;
+      custom: boolean;
     }
-    const ids = new Set<string>([
-      ...known.map((preset) => preset.credential),
-      ...answering.keys(),
-      ...this.providers().map((provider) => provider.id),
-    ]);
-    return [...ids]
-      .map((id) => ({
-        id,
-        label: known.find((preset) => preset.credential === id)?.label ?? id,
-        env: this.envNameFor(id),
-        key: this.presetKey(id),
-        models: answering.get(id) ?? 0,
-      }))
-      // A provider with models is what the reader can pick right now; the rest are
-      // keys that would add some. Ties fall back to a stable, readable order.
-      .sort(
-        (left, right) =>
-          Number(right.models > 0) - Number(left.models > 0) ||
-          Number(right.key.length > 0) - Number(left.key.length > 0) ||
-          left.label.localeCompare(right.label),
-      );
+    // Checked "Use global configuration" snapshots the host's keys and custom
+    // endpoints on submit, so the cards preview that live: global customs
+    // appear, and a globally connected provider reads as connected.
+    // Unchecked, only this bot's own pasted keys and its own customs count —
+    // the host's store and its private endpoints stay out of the list.
+    const snapshot = this.useGlobalConfig();
+    const cards: PickerCard[] = global
+      .filter((provider) => !localIds.has(provider.id) && (snapshot || provider.kind !== 'custom'))
+      .map((provider) => {
+        const keyedHere = keyed.has(provider.id);
+        const viaGlobal = !keyedHere && snapshot && provider.connected;
+        return {
+          id: provider.id,
+          label: provider.name,
+          hint: provider.kind === 'custom'
+            ? `${(provider.models ?? []).length} models · shared endpoint`
+            : provider.description,
+          models: (provider.models ?? []).length,
+          connected: keyedHere || viaGlobal,
+          viaGlobal,
+          local: false,
+          custom: provider.kind === 'custom',
+        };
+      });
+    for (const provider of this.localProviders()) {
+      cards.push({
+        id: provider.id,
+        label: provider.label,
+        hint: `${provider.models.length} models · this bot`,
+        models: provider.models.length,
+        connected: false,
+        viaGlobal: false,
+        local: true,
+        custom: true,
+      });
+    }
+    const query = this.providerQuery().trim().toLowerCase();
+    const shown =
+      query.length === 0
+        ? cards
+        : cards.filter((card) =>
+            [card.label, card.id, card.hint].some((value) =>
+              value.toLowerCase().includes(query),
+            ),
+          );
+    // A provider with models is what the reader can pick right now; the rest
+    // are keys that would add some. Ties fall back to a stable order.
+    return [...shown].sort(
+      (left, right) =>
+        Number(right.models > 0) - Number(left.models > 0) ||
+        left.label.localeCompare(right.label),
+    );
   });
 
   /**
    * The name a provider's key travels under in the environment — the placeholder
-   * in its row, so a reader who already exports it recognises the field.
+   * in its field, so a reader who already exports it recognises the field.
    */
   protected envNameFor(provider: string): string {
     return `${provider.replace(/[^a-z0-9]+/gi, '_').toUpperCase()}_API_KEY`;
   }
 
-  /** Clicking a key row picks that provider: the models column answers it. */
-  protected chooseProvider(provider: string): void {
-    this.activeProvider.set(provider);
+  /** Clicking a card shows that provider's models in the detail below it. */
+  protected pickProvider(provider: string): void {
+    this.pickedProvider.set(provider);
   }
 
-  /** Which provider's models the third column draws. */
-  protected readonly activeProviderId = computed(() => {
-    const rows = this.providerRows();
-    const chosen = this.activeProvider();
-    if (rows.some((row) => row.id === chosen)) {
+  /** Which provider's models the detail draws. */
+  protected readonly pickedProviderId = computed(() => {
+    const cards = this.pickerProviders();
+    const chosen = this.pickedProvider();
+    if (cards.some((card) => card.id === chosen)) {
       return chosen;
     }
-    return (rows.find((row) => row.models > 0) ?? rows[0])?.id ?? '';
+    const found = cards.find((card) => card.models > 0) ?? cards[0];
+    if (found !== undefined) {
+      return found.id;
+    }
+    // No cards at all (an empty catalog): keep showing the saved model's
+    // provider, so an edit never loses its pick.
+    const key = this.modelKey();
+    return key.includes('/') ? key.slice(0, key.indexOf('/')) : '';
   });
 
+  /** The picked provider's catalog entry, when it is a global one. */
+  protected readonly pickedGlobal = computed(() =>
+    this.catalog()?.providers.find((one) => one.id === this.pickedProviderId()),
+  );
+
+  /** The picked provider's local entry, when it belongs to this bot. */
+  protected readonly pickedLocal = computed(() =>
+    this.localProviders().find((one) => one.id === this.pickedProviderId()),
+  );
+
   /** That provider's models, narrowed by the search field. */
-  protected readonly activeModels = computed(() => {
-    const provider = this.activeProviderId();
+  protected readonly pickedModels = computed(() => {
+    const id = this.pickedProviderId();
     const filter = this.modelFilter().trim().toLowerCase();
     return this.allModels().filter(
       (model) =>
-        model.provider === provider &&
+        model.provider === id &&
         (filter.length === 0 ||
           model.id.toLowerCase().includes(filter) ||
           model.name.toLowerCase().includes(filter)),
     );
   });
 
-  /** The provider whose models are in front, for the column's own wording. */
-  protected readonly activeProviderRow = computed(() =>
-    this.providerRows().find((row) => row.id === this.activeProviderId()),
-  );
-
-  protected readonly activeProviderLabel = computed(() => this.activeProviderRow()?.label ?? '');
+  /** Full model entries of the picked provider, for the capability badges. */
+  protected readonly pickedModelDetails = computed(() => {
+    const id = this.pickedProviderId();
+    const global = this.catalog()?.providers.find((one) => one.id === id)?.models ?? [];
+    const local = this.localProviders().find((one) => one.id === id)?.models ?? [];
+    const details = new Map<string, ProviderModel>();
+    for (const model of global) {
+      details.set(model.id, model);
+    }
+    for (const model of local) {
+      details.set(model.id, model);
+    }
+    return details;
+  });
 
   /** The models each source offers, one flat searchable list. */
   protected readonly pinnedModel = signal<ModelOption | undefined>(undefined);
 
   /**
-   * Everything Connect can offer, one flat searchable list: catalog probe hits
-   * first (their provider is the credential's), then each custom provider's
-   * models keyed `<providerId>/<modelId>`, then the model this bot already runs
-   * on when the catalog did not list it (an edited bot whose keys were never
-   * handed back, so the probe cannot see the paid catalog) — otherwise the saved
-   * choice would vanish from the list and the step would read as unsatisfied.
+   * Everything the picker can offer: the engine catalog's models plus each
+   * bot-local provider's, then the model this bot already runs on when neither
+   * lists it (an edited bot whose keys were never handed back) — otherwise the
+   * saved choice would vanish from the list.
    */
   protected readonly allModels = computed<ModelOption[]>(() => {
-    const catalog = this.probedModels();
-    const custom = this.providers().flatMap((provider) =>
-      provider.models.map((model) => ({
-        provider: provider.id,
+    const from = (provider: string, models: readonly ProviderModel[]): ModelOption[] =>
+      models.map((model) => ({
+        provider,
         id: model.id,
         name: model.name ?? model.id,
         ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
         ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
-      })),
+        ...(model.input === undefined ? {} : { input: model.input }),
+      }));
+    const global = (this.catalog()?.providers ?? []).flatMap((provider) =>
+      from(provider.id, provider.models ?? []),
     );
-    const models = [...catalog, ...custom];
+    const local = this.localProviders().flatMap((provider) => from(provider.id, provider.models));
+    const seen = new Set<string>();
+    const models = [...global, ...local].filter((model) => {
+      const key = this.modelOptionKey(model);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
     const pinned = this.pinnedModel();
     if (pinned === undefined) {
       return models;
@@ -389,23 +457,57 @@ export class BotWizard {
     this.allModels().find((candidate) => this.modelOptionKey(candidate) === this.modelKey()),
   );
 
-  /** Why Next is refused on Connect, in the reader's words; empty once it may pass. */
+  /**
+   * The thinking levels the picked model actually offers: its own declared
+   * set when the catalog (or the local editor) knows it, the full engine
+   * vocabulary when nobody said. A custom endpoint's models carry the levels
+   * the reader gave them, so they narrow this too.
+   */
+  protected readonly thinkingOptions = computed<ThinkingLevel[]>(() => {
+    const model = this.model();
+    const detail = model === undefined ? undefined : this.pickedModelDetails().get(model.id);
+    const levels = detail?.thinkingLevels;
+    if (levels !== undefined && levels.length > 0) {
+      return [...levels];
+    }
+    const thinking = detail?.thinking;
+    if (thinking !== undefined) {
+      const offered = THINKING_LEVELS.filter(
+        (level) => thinking[level] !== undefined && thinking[level] !== null,
+      );
+      if (offered.length > 0) {
+        return offered;
+      }
+    }
+    return [...THINKING_LEVELS];
+  });
+
+  /** Why Create holds, in the reader's words; empty once it may pass. */
   protected readonly modelBlocker = computed(() => {
-    if (this.model() !== undefined || this.catalogError() !== null) {
+    if (this.model() !== undefined) {
       return '';
     }
-    if (!this.probeReady() && this.providers().length === 0) {
-      return "Loading this engine's catalog…";
+    if (this.catalogLoading()) {
+      return "Loading this engine's providers…";
+    }
+    if (this.catalogError() !== null) {
+      return '';
     }
     if (this.allModels().length === 0) {
-      return 'This engine listed no models. Paste a key in Provider keys below, or add a provider with at least one model — a bot must be given a model to run on.';
+      return 'This engine listed no models. Add a provider below — a bot must be given a model to run on.';
     }
     return 'Pick a model to continue.';
   });
 
-  /** The custom-provider drafts, as the create will send them. */
+  protected readonly collectedCredentials = computed(() =>
+    this.credentials()
+      .filter((row) => row.provider.trim().length > 0 && row.apiKey.trim().length > 0)
+      .map((row) => ({ provider: row.provider.trim(), apiKey: row.apiKey.trim() })),
+  );
+
+  /** The bot-local providers, as the create will send them (keys included). */
   protected readonly collectedProviders = computed<BotProviderInput[]>(() =>
-    this.providers()
+    this.localProviders()
       .filter((draft) => draft.id.trim().length > 0 && draft.models.length > 0)
       .map((draft) => ({
         id: draft.id.trim(),
@@ -420,10 +522,21 @@ export class BotWizard {
       })),
   );
 
-  protected readonly collectedCredentials = computed(() =>
-    this.credentials()
-      .filter((row) => row.provider.trim().length > 0 && row.apiKey.trim().length > 0)
-      .map((row) => ({ provider: row.provider.trim(), apiKey: row.apiKey.trim() })),
+  /**
+   * The bot-local providers, as an edit sends them: model fields only, around
+   * the key the engine already stores. Keys are never read back, so an edit
+   * carries no credential — a correction never costs the reader their key.
+   */
+  protected readonly editedProviders = computed<BotProviderConfig[]>(() =>
+    this.localProviders()
+      .filter((draft) => draft.id.trim().length > 0 && draft.models.length > 0)
+      .map((draft) => ({
+        id: draft.id.trim(),
+        label: draft.label.trim() || draft.id.trim(),
+        api: draft.api,
+        ...(draft.baseUrl.trim().length > 0 ? { baseUrl: draft.baseUrl.trim() } : {}),
+        models: draft.models.map((model) => ({ ...model })),
+      })),
   );
 
   protected readonly namedSubagents = computed<SubagentRow[]>(() =>
@@ -485,9 +598,9 @@ export class BotWizard {
         this.createError.set(notice.text);
       });
     });
-    // A discovery answer for the draft's request fills the draft's model rows.
+    // A discovery answer for the editor's request fills the editor's models.
     effect(() => {
-      const requestId = this.draftRequestId();
+      const requestId = this.editorRequestId();
       if (requestId === null) {
         return;
       }
@@ -496,9 +609,9 @@ export class BotWizard {
         return;
       }
       untracked(() => {
-        this.draftRequestId.set(null);
-        this.draftProbing.set(false);
-        this.draftModels.set(
+        this.editorRequestId.set(null);
+        this.editorProbing.set(false);
+        this.editorModels.set(
           answer.map((model) => ({
             id: model.id,
             ...(model.name === undefined ? {} : { name: model.name }),
@@ -511,45 +624,37 @@ export class BotWizard {
           })),
         );
         if (answer.length === 0) {
-          this.draftError.set('The endpoint listed no models.');
+          this.editorError.set('The endpoint listed no models.');
         }
       });
     });
     // A discovery can also fail (refused key, unreachable endpoint). The host
     // says so as a notice; a new notice while a discovery is in flight is that
-    // failure, shown on the draft card.
+    // failure, shown on the editor.
     effect(() => {
       const notice = this.morse.lastNotice();
-      const waiting = this.draftProbing();
+      const waiting = this.editorProbing();
       if (!waiting || notice === undefined) {
         return;
       }
       untracked(() => {
-        this.draftRequestId.set(null);
-        this.draftProbing.set(false);
-        this.draftError.set(notice.text);
+        this.editorRequestId.set(null);
+        this.editorProbing.set(false);
+        this.editorError.set(notice.text);
       });
     });
-    // The model row is the page's first question, so its list is asked for as
-    // soon as there is an engine to ask about. The signature keeps it to one
-    // request per engine and key set.
+    // The providers are the page's first question, so the engine's catalog is
+    // read as soon as there is an engine to ask about.
     effect(() => {
       this.engineKind();
-      untracked(() => this.probeCatalog());
+      untracked(() => void this.loadCatalog());
     });
-    // A catalog probe can fail too (a refused key, an unreachable engine). The
-    // host says so as a notice; a new one while the answer is still missing is
-    // that failure, said on the Model section instead of nowhere.
-    effect(() => {
-      const notice = this.morse.lastNotice();
-      const requestId = this.probeRequestId();
-      if (requestId === null || notice === undefined || notice === this.probeNotice) {
-        return;
+    // An engine's providers can change in Settings while this editor is open;
+    // re-read so the picker never offers a stale list.
+    this.morse.onProvidersChanged((event) => {
+      if (event.engine.length === 0 || event.engine === this.engineKind()) {
+        void this.loadCatalog();
       }
-      if (this.morse.bot.models()[requestId] !== undefined) {
-        return;
-      }
-      untracked(() => this.catalogError.set(notice.text));
     });
     // Editing reuses this wizard, so the bot's own record fills it in. Asking is
     // idempotent: the answer arrives as `bot/config`, and the same effect settles
@@ -586,7 +691,8 @@ export class BotWizard {
       | 'agentsMd'
       | 'envVars'
       | 'envText'
-      | 'modelFilter',
+      | 'modelFilter'
+      | 'providerQuery',
     event: Event,
   ): void {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
@@ -622,6 +728,9 @@ export class BotWizard {
       case 'modelFilter':
         this.modelFilter.set(value);
         return;
+      case 'providerQuery':
+        this.providerQuery.set(value);
+        return;
     }
   }
 
@@ -635,12 +744,13 @@ export class BotWizard {
     if (kind !== this.engineKind()) {
       this.engineKind.set(kind);
       this.credentials.set([]);
-      this.useGoAuth.set(false);
-      this.providers.set([]);
+      this.useGlobalConfig.set(false);
+      this.localProviders.set([]);
       this.modelKey.set('');
-      // The engine's catalog is a different set of providers, so the column goes
-      // back to whichever of them it can actually list models for.
-      this.activeProvider.set('');
+      // The catalog belongs to another engine, so the picker goes back to
+      // whichever provider it can actually list models for.
+      this.pickedProvider.set('');
+      this.closeEditor();
       // Servers are engine-specific config (`mcp.json` vs `opencode.json`), so a
       // list collected for another engine would be written in the wrong shape.
       this.mcpServers.set([]);
@@ -649,35 +759,57 @@ export class BotWizard {
       // than carrying names it does not have.
       this.tools.set([...(DEFAULT_TOOLS[kind] ?? [])]);
       this.toolsEdited.set(false);
-      // The catalog belongs to the engine, and the model step sits right below
-      // the choice: ask at once rather than on the next visit.
-      this.probeCatalog(true);
+      // The providers belong to the engine, and the picker sits right below
+      // the choice: read at once rather than on the next visit.
+      void this.loadCatalog();
     }
   }
 
   /**
-   * Re-probes once a key is committed (blur or Enter), not on every keystroke —
-   * the catalog request spawns an engine process, so one per character would be
-   * both slow and pointless.
+   * Reads the engine's provider catalog — the same source Settings shows — so
+   * the picker offers every provider the engine knows, with their models.
    */
-  protected refreshCatalog(): void {
-    this.probeCatalog();
+  protected async loadCatalog(): Promise<void> {
+    if (this.engineKind().length === 0) {
+      return;
+    }
+    const engine = this.engineKind();
+    this.catalogLoading.set(true);
+    this.catalogError.set(null);
+    try {
+      const answer = await this.morse.requestHostCommand('providerStatus', { engine });
+      if (this.engineKind() !== engine) {
+        return; // The reader switched engines while the host answered.
+      }
+      const status = asProviderStatus(answer);
+      if (status === undefined) {
+        this.catalogError.set('Could not read this engine’s providers.');
+        return;
+      }
+      this.catalog.set(status);
+      const issues = status.issues ?? [];
+      if (issues.length > 0) {
+        this.catalogError.set(issues.map((one) => one.message).join('\n'));
+      }
+    } catch (error: unknown) {
+      this.catalogError.set(error instanceof Error ? error.message : 'Could not load providers.');
+    } finally {
+      this.catalogLoading.set(false);
+    }
   }
 
-  protected setGoAuth(event: Event): void {
-    this.useGoAuth.set((event.target as HTMLInputElement).checked);
-    this.probeCatalog(true);
+  protected setGlobalConfig(event: Event): void {
+    this.useGlobalConfig.set((event.target as HTMLInputElement).checked);
   }
 
   /** What is typed in one provider's key field, so a re-render keeps it. */
-  protected presetKey(credential: string): string {
+  protected providerKey(credential: string): string {
     return this.credentials().find((row) => row.provider === credential)?.apiKey ?? '';
   }
 
   /**
-   * The key typed in a provider's group: its own field, committed on blur. The
-   * model list is what the key is for, so asking for it anywhere else makes the
-   * reader scroll between a list and the thing that fills it.
+   * The key typed for a global provider. It is committed on blur and stored
+   * isolated to this bot — the host's own credential store is never read.
    */
   protected setProviderKey(credential: string, event: Event): void {
     const value = (event.target as HTMLInputElement).value;
@@ -687,224 +819,198 @@ export class BotWizard {
         ? held.map((row) => (row.provider === credential ? { ...row, apiKey: value } : row))
         : [...held, { provider: credential, apiKey: value }],
     );
-    this.refreshCatalog();
   }
 
-  protected openAddProvider(): void {
-    this.addingProvider.set(true);
-    this.draftId.set('');
-    this.draftLabel.set('');
-    this.draftApi.set('openai-completions');
-    this.draftBaseUrl.set('');
-    this.draftKeyKind.set('stored');
-    this.draftApiKey.set('');
-    this.draftEnvName.set('');
-    this.draftModels.set([]);
-    this.draftModelId.set('');
-    this.draftError.set(null);
-    this.draftProbing.set(false);
-    this.draftRequestId.set(null);
+  /** Opens the local-provider editor for a new endpoint of this bot. */
+  protected openAddLocal(): void {
+    this.editorTarget.set(null);
+    this.editorId.set('');
+    this.editorLabel.set('');
+    this.editorApi.set('openai-completions');
+    this.editorBaseUrl.set('');
+    this.editorKeyKind.set('stored');
+    this.editorApiKey.set('');
+    this.editorEnvName.set('');
+    this.editorModels.set([]);
+    this.editorError.set(null);
+    this.editorProbing.set(false);
+    this.editorRequestId.set(null);
+    this.editorOpen.set(true);
   }
 
-  protected cancelAddProvider(): void {
-    this.addingProvider.set(false);
+  /** Opens the local-provider editor for one this bot already holds. */
+  protected openEditLocal(provider: LocalProvider): void {
+    this.editorTarget.set(provider.id);
+    this.editorId.set(provider.id);
+    this.editorLabel.set(provider.label);
+    this.editorApi.set(provider.api);
+    this.editorBaseUrl.set(provider.baseUrl);
+    this.editorKeyKind.set(provider.credentialKind);
+    this.editorApiKey.set(provider.apiKey);
+    this.editorEnvName.set(provider.envName);
+    this.editorModels.set(provider.models.map((model) => ({ ...model })));
+    this.editorError.set(null);
+    this.editorProbing.set(false);
+    this.editorRequestId.set(null);
+    this.editorOpen.set(true);
   }
 
-  protected setDraft(
-    target: 'id' | 'label' | 'baseUrl' | 'apiKey' | 'envName' | 'draftModelId',
+  /** Copies a shared endpoint into this bot, so its models stay editable here. */
+  protected copyGlobalCustom(provider: ProviderInfo): void {
+    if (!this.localProviders().some((one) => one.id === provider.id)) {
+      this.localProviders.update((rows) => [
+        ...rows,
+        {
+          id: provider.id,
+          label: provider.name,
+          api: (provider.api ?? 'openai-completions') as BotProviderApi,
+          baseUrl: provider.baseURL ?? '',
+          credentialKind: 'stored',
+          apiKey: '',
+          envName: '',
+          models: (provider.models ?? []).map((model) => ({ ...model })),
+        },
+      ]);
+    }
+    const local = this.localProviders().find((one) => one.id === provider.id);
+    if (local !== undefined) {
+      this.openEditLocal(local);
+    }
+  }
+
+  protected closeEditor(): void {
+    this.editorOpen.set(false);
+    this.editorTarget.set(null);
+  }
+
+  protected setEditor(
+    target: 'id' | 'label' | 'baseUrl' | 'apiKey' | 'envName',
     event: Event,
   ): void {
     const value = (event.target as HTMLInputElement).value;
     switch (target) {
       case 'id':
-        this.draftId.set(value);
+        this.editorId.set(value);
         return;
       case 'label':
-        this.draftLabel.set(value);
+        this.editorLabel.set(value);
         return;
       case 'baseUrl':
-        this.draftBaseUrl.set(value);
+        this.editorBaseUrl.set(value);
         return;
       case 'apiKey':
-        this.draftApiKey.set(value);
+        this.editorApiKey.set(value);
         return;
       case 'envName':
-        this.draftEnvName.set(value);
-        return;
-      case 'draftModelId':
-        this.draftModelId.set(value);
+        this.editorEnvName.set(value);
         return;
     }
   }
 
-  protected setDraftApi(event: Event): void {
-    this.draftApi.set((event.target as HTMLSelectElement).value as BotProviderApi);
+  protected setEditorApi(event: Event): void {
+    this.editorApi.set((event.target as HTMLSelectElement).value as BotProviderApi);
   }
 
-  protected setDraftKeyKind(kind: 'stored' | 'env'): void {
-    this.draftKeyKind.set(kind);
+  protected setEditorKeyKind(kind: 'stored' | 'env'): void {
+    this.editorKeyKind.set(kind);
   }
 
-  /** Asks the endpoint what it serves; the effects above file the answer. */
-  protected discoverDraft(): void {
-    const baseUrl = this.draftBaseUrl().trim();
-    if (baseUrl.length === 0 || this.draftRequestId() !== null) {
+  /** Asks the endpoint what it serves; the effect above files the answer. */
+  protected discoverEditor(): void {
+    const baseUrl = this.editorBaseUrl().trim();
+    if (baseUrl.length === 0 || this.editorRequestId() !== null) {
       return;
     }
     const requestId = nextRequestId();
-    this.draftRequestId.set(requestId);
-    this.draftProbing.set(true);
-    this.draftError.set(null);
+    this.editorRequestId.set(requestId);
+    this.editorProbing.set(true);
+    this.editorError.set(null);
     void this.morse.discoverModels(
       baseUrl,
-      this.draftKeyKind() === 'stored'
-        ? { kind: 'stored', apiKey: this.draftApiKey() }
-        : { kind: 'env', name: this.draftEnvName().trim() },
+      this.editorKeyKind() === 'stored'
+        ? { kind: 'stored', apiKey: this.editorApiKey() }
+        : { kind: 'env', name: this.editorEnvName().trim() },
       requestId,
     );
   }
 
-  protected addDraftModel(): void {
-    const id = this.draftModelId().trim();
-    if (id.length === 0) {
+  /** The editor's validity: an id, a URL and at least one model. */
+  protected readonly editorValid = computed(
+    () =>
+      this.editorId().trim().length > 0 &&
+      /^https?:\/\//.test(this.editorBaseUrl().trim()) &&
+      this.editorModels().some((row) => row.id.trim().length > 0),
+  );
+
+  protected saveEditor(): void {
+    const id = this.editorId().trim();
+    if (id.length === 0 || !this.editorValid()) {
       return;
     }
-    this.draftModels.update((rows) => [...rows, { id }]);
-    this.draftModelId.set('');
-  }
-
-  protected removeDraftModel(index: number): void {
-    this.draftModels.update((rows) => rows.filter((_, at) => at !== index));
-  }
-
-  /**
-   * One model field the reader corrected: its context window or its output cap.
-   * An empty box clears the field, which writes nothing and lets the engine apply
-   * its own default — the honest answer when nobody knows the number.
-   */
-  protected setModelField(index: number, field: 'contextWindow' | 'maxTokens', event: Event): void {
-    const raw = (event.target as HTMLInputElement).value.trim();
-    const value = raw === '' ? undefined : Number(raw);
-    const next = value === undefined || !Number.isFinite(value) || value <= 0 ? undefined : Math.floor(value);
-    this.draftModels.update((rows) =>
-      rows.map((row, at) => {
-        if (at !== index) {
-          return row;
-        }
-        const { [field]: _dropped, ...rest } = row;
-        return next === undefined ? rest : { ...rest, [field]: next };
-      }),
-    );
-  }
-
-  /**
-   * Whether this model takes images. A three-state toggle on purpose: unknown
-   * (absent) means "the engine decides", which is different from a model that says
-   * it takes text only — and a vision model behind a custom provider has to say
-   * `image` explicitly, because pi's own default is text-only.
-   */
-  protected toggleModelImage(index: number): void {
-    this.draftModels.update((rows) =>
-      rows.map((row, at) => {
-        if (at !== index) {
-          return row;
-        }
-        const input = row.input ?? [];
-        if (input.includes('image')) {
-          return { ...row, input: input.filter((one) => one !== 'image') };
-        }
-        return { ...row, input: [...new Set<ModelInput>([...input, 'text', 'image'])] };
-      }),
-    );
-  }
-
-  /** A model row's image capability as the toggle shows it. */
-  protected modelTakesImages(model: BotProviderModel): boolean {
-    return model.input?.includes('image') === true;
-  }
-
-  /** The same field handlers for a provider read back from the engine's config. */
-  protected setKnownModelField(
-    providerId: string,
-    modelId: string,
-    field: 'contextWindow' | 'maxTokens',
-    event: Event,
-  ): void {
-    const raw = (event.target as HTMLInputElement).value.trim();
-    const parsed = raw === '' ? undefined : Number(raw);
-    const next = parsed === undefined || !Number.isFinite(parsed) || parsed <= 0 ? undefined : Math.floor(parsed);
-    this.engineProviders.update((rows) =>
-      rows.map((provider) =>
-        provider.id === providerId
-          ? {
-              ...provider,
-              models: provider.models.map((model) => {
-                if (model.id !== modelId) {
-                  return model;
-                }
-                const { [field]: _dropped, ...rest } = model;
-                return next === undefined ? rest : { ...rest, [field]: next };
-              }),
-            }
-          : provider,
-      ),
-    );
-  }
-
-  protected toggleKnownModelImage(providerId: string, modelId: string): void {
-    this.engineProviders.update((rows) =>
-      rows.map((provider) =>
-        provider.id === providerId
-          ? {
-              ...provider,
-              models: provider.models.map((model) => {
-                if (model.id !== modelId) {
-                  return model;
-                }
-                const input = model.input ?? [];
-                return input.includes('image')
-                  ? { ...model, input: input.filter((one) => one !== 'image') }
-                  : { ...model, input: [...new Set<ModelInput>([...input, 'text', 'image'])] };
-              }),
-            }
-          : provider,
-      ),
-    );
-  }
-
-  protected saveDraft(): void {
-    const id = this.draftId().trim();
-    if (id.length === 0) {
+    const target = this.editorTarget();
+    if (target === null && this.localProviders().some((row) => row.id === id)) {
+      this.editorError.set(`A provider named "${id}" is already in this bot.`);
       return;
     }
-    if (this.providers().some((row) => row.id === id)) {
-      this.draftError.set(`A provider named "${id}" is already in this bot.`);
-      return;
+    const entry: LocalProvider = {
+      id,
+      label: this.editorLabel().trim() || id,
+      api: this.editorApi(),
+      baseUrl: this.editorBaseUrl().trim(),
+      credentialKind: this.editorKeyKind(),
+      apiKey: this.editorApiKey(),
+      envName: this.editorEnvName().trim(),
+      models: this.editorModels()
+        .filter((model) => model.id.trim().length > 0)
+        .map((model) => ({ ...model })),
+    };
+    if (target === null) {
+      this.localProviders.update((rows) => [...rows, entry]);
+    } else {
+      this.localProviders.update((rows) => rows.map((row) => (row.id === target ? entry : row)));
     }
-    this.providers.update((rows) => [
-      ...rows,
-      {
-        id,
-        label: this.draftLabel().trim() || id,
-        api: this.draftApi(),
-        baseUrl: this.draftBaseUrl().trim(),
-        credentialKind: this.draftKeyKind(),
-        apiKey: this.draftApiKey(),
-        envName: this.draftEnvName().trim(),
-        models: this.draftModels(),
-      },
-    ]);
-    this.addingProvider.set(false);
+    this.closeEditor();
+    this.pickedProvider.set(id);
   }
 
-  protected removeProvider(id: string): void {
-    this.providers.update((rows) => rows.filter((row) => row.id !== id));
+  protected removeLocal(id: string): void {
+    this.localProviders.update((rows) => rows.filter((row) => row.id !== id));
+    if (this.pickedProvider() === id) {
+      this.pickedProvider.set('');
+    }
   }
 
   protected pickModel(key: string): void {
+    const providerId = key.slice(0, key.indexOf('/'));
+    // A shared endpoint has no place in the bot until it is copied in: picking
+    // one clones it into this bot (without its key), so the save always runs.
+    const global = this.catalog()?.providers.find((one) => one.id === providerId);
+    if (
+      global !== undefined &&
+      global.kind === 'custom' &&
+      !this.localProviders().some((one) => one.id === providerId)
+    ) {
+      this.localProviders.update((rows) => [
+        ...rows,
+        {
+          id: global.id,
+          label: global.name,
+          api: (global.api ?? 'openai-completions') as BotProviderApi,
+          baseUrl: global.baseURL ?? '',
+          credentialKind: 'stored',
+          apiKey: '',
+          envName: '',
+          models: (global.models ?? []).map((model) => ({ ...model })),
+        },
+      ]);
+    }
     this.modelKey.set(key);
-    // The column follows the choice, so reopening the page shows its provider.
-    this.activeProvider.set(key.slice(0, key.indexOf('/')));
+    // The detail follows the choice, so reopening the page shows its provider.
+    this.pickedProvider.set(providerId);
+    // A level the new model does not offer falls back to the engine default.
+    if (this.thinking() !== '' && !this.thinkingOptions().includes(this.thinking() as ThinkingLevel)) {
+      this.thinking.set('');
+    }
   }
 
   protected pickThinking(event: Event): void {
@@ -929,43 +1035,6 @@ export class BotWizard {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
     this.subagents.update((rows) =>
       rows.map((row, at) => (at === index ? { ...row, [field]: value } : row)),
-    );
-  }
-
-  /**
-   * Asks the engine's catalog what the current keys unlock, under a fresh
-   * request id. Called on arriving at Connect — the reader must never have to
-   * walk past the step and come back to see the list — and again whenever the
-   * keys change underneath it.
-   */
-  protected probeCatalog(force = false): void {
-    // Nothing to ask yet: the engine is chosen in this same step, and an empty
-    // one would be a host error rather than an empty list.
-    if (this.engineKind().length === 0) {
-      return;
-    }
-    const signature = JSON.stringify([
-      this.engineKind(),
-      this.useGoAuth(),
-      this.collectedCredentials(),
-      parseEnvVars(this.envVars()),
-      this.envText(),
-    ]);
-    if (!force && signature === this.probeSignature()) {
-      return;
-    }
-    const requestId = nextRequestId();
-    this.probeRequestId.set(requestId);
-    this.probeSignature.set(signature);
-    this.probeNotice = this.morse.lastNotice();
-    this.catalogError.set(null);
-    this.morse.probeModels(
-      this.engineKind(),
-      parseEnvVars(this.envVars()),
-      this.collectedCredentials(),
-      requestId,
-      parseEnvText(this.envText()).values,
-      this.useGoAuth(),
     );
   }
 
@@ -997,8 +1066,7 @@ export class BotWizard {
     this.description.set(config.description);
     this.avatar.set(config.avatar ?? '');
     this.engineKind.set(config.engineKind);
-    // Keys are the engine's, never read back: the preset chips start blank, and
-    // the catalog probe therefore answers with what needs no key.
+    // Keys are the engine's, never read back: the fields start blank.
     this.credentials.set([]);
     this.envVars.set(config.envVars.join(', '));
     this.envText.set(
@@ -1015,9 +1083,17 @@ export class BotWizard {
     // config had one: an absent list is "do not touch the engine's file".
     this.mcpServers.set((config.mcpServers ?? []).map((server) => ({ ...server })));
     this.mcpLoaded.set(config.mcpServers !== undefined);
-    this.engineProviders.set(
+    // An edit's own providers become this bot's local list: the same editor as
+    // a create, without the credential the engine already stores.
+    this.localProviders.set(
       (config.providers ?? []).map((provider) => ({
-        ...provider,
+        id: provider.id,
+        label: provider.label,
+        api: provider.api ?? 'openai-completions',
+        baseUrl: provider.baseUrl ?? '',
+        credentialKind: 'stored' as const,
+        apiKey: '',
+        envName: '',
         models: provider.models.map((model) => ({ ...model })),
       })),
     );
@@ -1026,10 +1102,10 @@ export class BotWizard {
     this.toolsEdited.set(config.tools !== undefined);
     this.pinnedModel.set(config.model);
     this.modelKey.set(config.model === undefined ? '' : this.modelOptionKey(config.model));
-    this.useGoAuth.set(config.model?.provider === 'opencode-go');
-    // An edit is one page, not a walk onto a step: the catalog has to be asked
-    // here, or the model list would hold nothing but the model already saved.
-    this.probeCatalog(true);
+    this.pickedProvider.set(config.model === undefined ? '' : config.model.provider);
+    // An edit is one page: read the engine's providers here, or the model list
+    // would hold nothing but the model already saved.
+    void this.loadCatalog();
   }
 
   protected canSubmit(): boolean {
@@ -1047,27 +1123,7 @@ export class BotWizard {
     );
   }
 
-  /** What the providers row holds: its own providers, or the ones it read back. */
-  protected readonly providersSummary = computed(() => {
-    if (this.editing()) {
-      return this.engineProviders().length === 0
-        ? 'engine catalog'
-        : `${this.engineProviders().length} declared`;
-    }
-    const mine = this.providers().length;
-    return mine === 0 ? 'engine catalog' : `${mine} of your own`;
-  });
-
-  /** What this bot will have to spend, in one line: the keys, or the lack of them. */
-  protected readonly keySummary = computed(() => {
-    const providers = this.collectedCredentials().map((row) => row.provider);
-    if (providers.length === 0) {
-      return this.editing() ? "the engine's own keys" : 'no key yet — free models still work';
-    }
-    return `${providers.join(', ')} (${providers.length})`;
-  });
-
-  /** The row's answer: the chosen model, or the one the engine falls back to. */
+  /** The section's answer: the chosen model, or the one the engine falls back to. */
   protected readonly modelLabel = computed(() => {
     const model = this.model();
     if (model === undefined) {
@@ -1170,10 +1226,11 @@ export class BotWizard {
         subagents,
         // Only a pasted key replaces the stored ones; an untouched form keeps them.
         ...(credentials.length === 0 ? {} : { credentials }),
-        ...(this.useGoAuth() ? { useGoAuth: true } : {}),
-        // Model capabilities the reader corrected, written back into the engine's
-        // own provider config around the credential already there.
-        ...(this.engineProviders().length === 0 ? {} : { providers: this.engineProviders() }),
+        // A checked box snapshots the machine's global config into this bot.
+        ...(this.useGlobalConfig() ? { useGlobalConfig: true } : {}),
+        // Model fields the reader corrected, written back into the bot's own
+        // provider config around the credential already there.
+        ...(this.editedProviders().length === 0 ? {} : { providers: this.editedProviders() }),
         // A config that named servers is written back whole (even emptied); one
         // that named none leaves the engine's file alone.
         ...(this.mcpLoaded() || this.mcpServers().length > 0
@@ -1183,7 +1240,7 @@ export class BotWizard {
       this.pending.set(target);
       return;
     }
-    const requestId = this.probeRequestId() ?? nextRequestId();
+    const requestId = nextRequestId();
     const name = this.name().trim();
     const agentsMd = this.agentsMd().trim();
     const subagents = this.namedSubagents();
@@ -1197,7 +1254,8 @@ export class BotWizard {
       ...(this.avatar().trim().length > 0 ? { avatar: this.avatar().trim() } : {}),
       engineKind: this.engineKind(),
       credentials: this.collectedCredentials(),
-      ...(this.useGoAuth() ? { useGoAuth: true } : {}),
+      // A checked box snapshots the machine's global config into this bot.
+      ...(this.useGlobalConfig() ? { useGlobalConfig: true } : {}),
       envVars: parseEnvVars(this.envVars()),
       ...(extraEnv === undefined ? {} : { env: extraEnv }),
       persona: this.persona(),

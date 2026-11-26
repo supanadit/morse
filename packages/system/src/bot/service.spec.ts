@@ -439,6 +439,7 @@ class FakeAdapter implements BotEngineAdapter {
   readonly factories: FakeFactory[] = [];
   readonly layout: FakeLayout;
   importGoCredential?: (botRoot: string) => Promise<boolean>;
+  importGlobalConfig?: (botRoot: string) => Promise<boolean>;
   readonly envs: NodeJS.ProcessEnv[] = [];
 
   constructor(
@@ -669,6 +670,30 @@ describe('BotService creation', () => {
     await expect(
       service.createBot(botInput({ username: 'sable', useGoAuth: true })),
     ).rejects.toThrow(/opencode auth login/);
+  });
+
+  it('createBot snapshots the global config when the wizard asks for it', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGlobalConfig = imported;
+
+    await service.createBot(botInput({ useGlobalConfig: true }));
+    expect(imported).toHaveBeenCalledTimes(1);
+    expect(imported.mock.calls[0]?.[0]).toContain('/forge');
+
+    adapter.importGlobalConfig = async () => false;
+    await expect(
+      service.createBot(botInput({ username: 'sable', useGlobalConfig: true })),
+    ).rejects.toThrow(/engine configuration/);
+  });
+
+  it('createBot skips the global snapshot unless the wizard asks for it', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGlobalConfig = imported;
+
+    await service.createBot(botInput({}));
+    expect(imported).not.toHaveBeenCalled();
   });
 
   it('createBot writes engine.json and credentials and probes', async () => {

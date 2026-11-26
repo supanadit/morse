@@ -183,43 +183,6 @@
 
 
 
-.provider-card {
-  max-width: 520px;
-  margin: 0 0 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-}
-
-.provider-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-}
-
-.provider-meta {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-models {
-  display: block;
-  margin-top: 4px;
-  overflow: hidden;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-remove,
 .model-remove {
   flex: none;
   display: inline-flex;
@@ -240,7 +203,6 @@
     color 120ms ease;
 }
 
-.provider-remove:hover,
 .model-remove:hover {
   background: var(--morse-hover);
   color: var(--morse-fg);
@@ -275,153 +237,6 @@
   opacity: 0.5;
   cursor: default;
 }
-
-.draft {
-  max-width: 520px;
-  margin: 10px 0 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--morse-accent);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-accent) 6%, transparent);
-}
-
-.draft .field:last-of-type {
-  margin-bottom: 0;
-}
-
-.draft-discover {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 4px 0 10px;
-}
-
-.manual-models {
-  margin-top: 8px;
-}
-
-.manual-models > span {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--morse-fg);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.manual-models small {
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.model-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 0;
-  border-bottom: 1px solid var(--morse-border);
-  font-size: 12px;
-}
-
-
-.model-id {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--morse-font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
-}
-.model-caps {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.cap {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
-  font-size: 10.5px;
-}
-.cap input,
-.cap-toggle {
-  height: 22px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-sm);
-  color: color-mix(in srgb, var(--morse-fg) 55%, transparent);
-  font: inherit;
-  font-size: 10.5px;
-}
-.cap input {
-  width: 76px;
-  padding: 0 5px;
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-  color: var(--morse-fg);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-}
-.cap input::placeholder {
-  color: color-mix(in srgb, var(--morse-fg) 30%, transparent);
-}
-.cap input:focus-visible {
-  outline: none;
-  border-color: var(--morse-accent);
-}
-
-.cap-toggle {
-  padding: 0 8px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
-}
-.cap-toggle:hover {
-  background: var(--morse-hover);
-  color: var(--morse-fg);
-}
-.cap-toggle.on {
-  border-color: color-mix(in srgb, var(--morse-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--morse-accent) 18%, transparent);
-  color: var(--morse-fg);
-}
-
-.model-add {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.model-add input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12.5px;
-}
-
-.model-add input:hover {
-  border-color: var(--morse-fg-muted);
-}
-
-.draft-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--morse-border);
-}
-
 
 .primary,
 .secondary {
@@ -513,48 +328,6 @@
   border-radius: var(--morse-radius-md);
 }
 
-.model-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.model-option:hover {
-  background: var(--morse-hover);
-}
-
-/* The chosen model is the one thing the column exists to show, so it gets an
-   edge as well as a wash — a wash alone reads as hover. */
-.model-option.on {
-  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
-  box-shadow: inset 2px 0 0 var(--morse-accent);
-}
-
-.model-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.model-provider {
-  flex: none;
-  color: var(--morse-fg-muted);
-  font-size: 11px;
-}
 
 
 
@@ -893,44 +666,75 @@
  */
 
 
-
-
-
-
-
-
 /*
- * The brain, in three columns: engines, provider keys, models. One selected thing
- * per column and an obvious edge on it — a rail where two rows look the same is a
- * rail nobody can read.
+ * Providers & model: the engine's own catalog as cards, an isolated key field,
+ * and the picked provider's models with the same badges Settings uses.
  */
-.brain {
+.providers {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin: 0 0 14px;
 }
 
-.brain-columns {
-  display: grid;
-  grid-template-columns: 132px 264px minmax(0, 1fr);
-  border: 1px solid var(--morse-border);
-  border-radius: var(--morse-radius-lg);
-  overflow: hidden;
+/* The engine choice: one segmented control like the Code/Bot switch — a row of
+   separate buttons would read as unrelated actions. */
+.engine-rail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 6px 0 2px 0;
+  padding: 2px;
+  border-radius: calc(var(--morse-radius-md) - 2px);
+  background: color-mix(in srgb, var(--morse-fg) 5%, transparent);
 }
 
-.brain-rail,
-.brain-keys {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  max-height: 260px;
-  padding: 6px;
-  overflow-y: auto;
-  border-right: 1px solid var(--morse-border);
+.engine-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  appearance: none;
+  border: 0;
+  border-radius: calc(var(--morse-radius-md) - 4px);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
 }
-.brain-go {
+
+.engine-pick:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--morse-fg) 6%, transparent);
+  color: var(--morse-fg);
+}
+
+.engine-pick.on,
+.engine-pick.on:hover {
+  background: color-mix(in srgb, var(--morse-fg) 10%, transparent);
+  color: var(--morse-fg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+}
+
+/* An engine an edit cannot change still says which one it is. */
+.engine-pick:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.engine-pick-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.go-auth,
+.global-auth {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -941,159 +745,305 @@
   font-size: 11px;
   cursor: pointer;
 }
-.brain-go small {
+
+.go-auth small,
+.global-auth small {
   color: var(--morse-fg-muted);
   font-size: 10px;
 }
 
-/* The engine choice: plain text until it is the one, then a solid accent chip. */
-.brain-pick {
+.provider-toolbar {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-search {
+  flex: 1;
+  min-width: 0;
   padding: 6px 8px;
-  appearance: none;
-  border: 1px solid transparent;
+  border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
-  background: none;
-  color: var(--morse-fg-muted);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
+}
+
+.provider-summary {
+  flex: none;
+  color: var(--morse-fg-muted);
+  font-size: 11px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.provider-grid .card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-fg) 3%, transparent);
+  color: var(--morse-fg);
+  font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
 }
 
-.brain-pick:hover:not(:disabled) {
-  background: var(--morse-hover);
-  color: var(--morse-fg);
-}
-
-.brain-pick.on {
+.provider-grid .card:hover {
   border-color: var(--morse-accent);
-  background: var(--morse-accent);
-  color: var(--morse-accent-fg);
+}
+
+.provider-grid .card.on {
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
+}
+
+.provider-grid .card.local {
+  border-style: dashed;
+}
+
+.provider-grid .mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--morse-border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.provider-grid .mark.plus {
+  color: var(--morse-fg-muted);
+  font-weight: 400;
+}
+
+.provider-grid .card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.provider-grid .card-body strong {
+  font-size: 12.5px;
   font-weight: 600;
 }
 
-/* An engine an edit cannot change still says which one it is. */
-.brain-pick:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
-.brain-pick-name {
-  flex: 1;
-  min-width: 0;
+.provider-grid .card-body small {
   overflow: hidden;
+  color: var(--morse-fg-muted);
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.brain-pick-count {
+.provider-grid .badge {
   flex: none;
-  color: inherit;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.7;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--morse-accent) 45%, var(--morse-border));
+  border-radius: 999px;
+  color: var(--morse-accent);
+  font-size: 10px;
+  font-weight: 600;
 }
 
-/*
- * A provider *is* its key row: one input, its environment name as the
- * placeholder, the accent edge when it is the one whose models are listed.
- */
-.brain-key {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 5px 8px;
-  border: 1px solid transparent;
+.provider-detail {
+  border: 1px solid var(--morse-border);
   border-radius: var(--morse-radius-md);
-  background: color-mix(in srgb, var(--morse-fg) 4%, transparent);
-  color: var(--morse-fg);
-  font: inherit;
+  padding: 12px 14px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-head h4 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+.detail-sub {
+  margin: 0;
+  color: var(--morse-fg-muted);
   font-size: 11px;
-  cursor: pointer;
 }
 
-.brain-key::placeholder {
-  color: color-mix(in srgb, var(--morse-fg) 45%, transparent);
-  font-family: var(--morse-font-mono);
-  font-size: 10.5px;
+.detail-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
 }
 
-/* A provider the catalog already lists models for reads as the live one. */
-.brain-key.listed::placeholder {
-  color: color-mix(in srgb, var(--morse-fg) 72%, transparent);
-}
-
-.brain-key:hover {
-  background: var(--morse-hover);
-}
-
-.brain-key.on,
-.brain-key:focus {
-  border-color: var(--morse-accent);
-  background: color-mix(in srgb, var(--morse-accent) 12%, transparent);
-  outline: none;
-  cursor: text;
-}
-
-.brain-empty {
+.provider-empty {
   margin: 0;
   padding: 6px;
   color: var(--morse-fg-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.brain-models {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 160px;
-  padding: 8px;
-}
-
-/* An empty column says one quiet line, centred — not a bordered box shouting it. */
-.brain-models .brain-empty {
-  margin: auto;
-  text-align: center;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 
-.brain-models .model-list {
-  max-height: 220px;
-  overflow-y: auto;
+/* The picked provider's models: one row per model, badges as Settings shows. */
+.model-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--morse-fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
 }
 
-/*
- * A narrow window: one column each, engines as a scrollable row on top, so the
- * three answers stay in one flow instead of three slivers.
- */
+.model-pick:hover {
+  background: var(--morse-hover);
+}
+
+/* The chosen model is the one thing the list exists to show, so it gets an
+   edge as well as a wash — a wash alone reads as hover. */
+.model-pick.on {
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--morse-accent);
+}
+
+.model-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-badges {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-badges svg.brain {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--morse-accent);
+}
+
+.model-badges morse-model-inputs {
+  display: inline-flex;
+}
+
+/* The bot-local endpoint editor: the same fields Settings' custom form has,
+   full width so the model table breathes; small screens scroll it. */
+.local-editor {
+  margin: 4px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--morse-accent);
+  border-radius: var(--morse-radius-md);
+  background: color-mix(in srgb, var(--morse-accent) 6%, transparent);
+}
+
+.local-editor h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.editor-discover {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+
+.editor-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.editor-models-head h4 {
+  margin: 0;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--morse-border);
+}
+
+.secondary.small {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+.text {
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--morse-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.text.danger {
+  color: #ff8f8f;
+}
+
+.choice {
+  padding: 5px 10px;
+  border: 1px solid var(--morse-border);
+  border-radius: var(--morse-radius-md);
+  background: transparent;
+  color: var(--morse-fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.choice.small {
+  padding: 4px 9px;
+}
+
+.choice.on {
+  border-color: var(--morse-accent);
+  background: color-mix(in srgb, var(--morse-accent) 14%, transparent);
+  color: var(--morse-fg);
+}
+
 @media (max-width: 860px) {
-  .brain-columns {
+  .provider-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .brain-rail,
-  .brain-keys {
-    max-height: 180px;
-    padding: 6px;
-    border-right: 0;
-    border-bottom: 1px solid var(--morse-border);
-  }
-
-  .brain-rail {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .brain-rail .brain-pick {
-    flex: none;
-    width: auto;
   }
 }

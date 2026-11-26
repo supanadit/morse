@@ -19,6 +19,7 @@ import {
   PI_INSTALL_HINT,
   botPiEnv,
   createBotPiFactory,
+  importPiGlobalConfig,
   writePiCredentials,
   writePiProviders,
 } from './bot-engine.js';
@@ -235,5 +236,97 @@ describe('writePiCredentials', () => {
     expectPrivateFile(path);
     // The atomic write leaves no temp file beside the secret.
     expect(readdirSync(configDir)).toEqual(['auth.json']);
+  });
+});
+
+/**
+ * The global-configuration snapshot: the machine's own `auth.json` entries
+ * and `models.json` providers land in the bot, and the bot wins on conflict.
+ */
+describe('importPiGlobalConfig', () => {
+  let previousAgentDir: string | undefined;
+
+  function withGlobalDir(dir: string): void {
+    previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = dir;
+  }
+
+  afterEach(() => {
+    if (previousAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    }
+    previousAgentDir = undefined;
+  });
+
+  const readJson = (path: string): unknown =>
+    JSON.parse(readFileSync(path, 'utf8') as string);
+
+  it('copies global keys and providers, bot wins on conflict', () => {
+    const globalDir = tempRoot();
+    const botRoot = tempRoot();
+    withGlobalDir(globalDir);
+    writeFileSync(
+      join(globalDir, 'auth.json'),
+      JSON.stringify({
+        anthropic: { type: 'api_key', key: 'global-anthropic' },
+        openai: { type: 'api_key', key: 'global-openai' },
+      }),
+    );
+    writeFileSync(
+      join(globalDir, 'models.json'),
+      JSON.stringify({
+        providers: {
+          acme: {
+            name: 'Acme AI',
+            baseUrl: 'https://llm.acme.example/v1',
+            api: 'openai-completions',
+            apiKey: 'global-acme',
+            models: [{ id: 'acme-chat' }],
+          },
+          shared: { name: 'Shared', models: [{ id: 's' }] },
+        },
+      })
+    );
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    writeFileSync(
+      join(botRoot, 'config', 'auth.json'),
+      JSON.stringify({ anthropic: { type: 'api_key', key: 'bot-anthropic' } })
+    );
+    writeFileSync(
+      join(botRoot, 'config', 'models.json'),
+      JSON.stringify({ providers: { mine: { name: 'Mine', models: [{ id: 'm' }] } } })
+    );
+
+    expect(importPiGlobalConfig(botRoot)).toBe(true);
+
+    // The bot's own key wins; the global-only key joins it.
+    expect(readJson(join(botRoot, 'config', 'auth.json'))).toEqual({
+      anthropic: { type: 'api_key', key: 'bot-anthropic' },
+      openai: { type: 'api_key', key: 'global-openai' },
+    });
+    // The bot's own providers survive; missing global ones arrive verbatim.
+    const providers = (
+      readJson(join(botRoot, 'config', 'models.json')) as {
+        providers: Record<string, unknown>;
+      }
+    ).providers;
+    expect(Object.keys(providers).sort()).toEqual(['acme', 'mine', 'shared']);
+    expect(providers['acme']).toEqual({
+      name: 'Acme AI',
+      baseUrl: 'https://llm.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'global-acme',
+      models: [{ id: 'acme-chat' }],
+    });
+  });
+
+  it('succeeds with nothing to copy when the machine holds no pi config', () => {
+    const botRoot = tempRoot();
+    withGlobalDir(join(botRoot, 'no-global-here'));
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    expect(importPiGlobalConfig(botRoot)).toBe(true);
+    expect(readJson(join(botRoot, 'config', 'auth.json'))).toEqual({});
   });
 });

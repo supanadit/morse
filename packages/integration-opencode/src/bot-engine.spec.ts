@@ -21,6 +21,7 @@ import {
   OPENCODE_BOT_CAPABILITIES,
   botOpenCodeEnv,
   createBotOpenCodeEngine,
+  importOpenCodeGlobalConfig,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
   writeOpenCodeProviders,
@@ -743,4 +744,93 @@ describe('opencodeBotAdapterFactory', () => {
       await fake.close();
     }
   }, 20_000);
+});
+
+/**
+ * The global-configuration snapshot: the machine's own `auth.json` entries
+ * and custom providers land in the bot, and the bot wins on conflict. The Go
+ * login is best-effort — PATH is stripped here so no binary is found.
+ */
+describe('importOpenCodeGlobalConfig', () => {
+  let previous: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    previous = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+      PATH: process.env.PATH,
+    };
+    process.env.PATH = join(tmpdir(), 'morse-no-binaries-here');
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  const readJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'));
+
+  it('copies global keys and providers, bot wins on conflict', async () => {
+    const xdgConfig = tempRoot();
+    const xdgData = tempRoot();
+    const botRoot = tempRoot();
+    process.env.XDG_CONFIG_HOME = xdgConfig;
+    process.env.XDG_DATA_HOME = xdgData;
+    mkdirSync(join(xdgData, 'opencode'), { recursive: true });
+    writeFileSync(
+      join(xdgData, 'opencode', 'auth.json'),
+      JSON.stringify({
+        anthropic: { type: 'api', key: 'global-anthropic' },
+        openai: { type: 'api', key: 'global-openai' },
+      })
+    );
+    mkdirSync(join(xdgConfig, 'opencode'), { recursive: true });
+    const acme = {
+      name: 'Acme AI',
+      package: '@ai-sdk/openai-compatible',
+      settings: { baseURL: 'https://llm.acme.example/v1', apiKey: 'global-acme' },
+      models: { 'acme-chat': { name: 'Acme Chat' } },
+    };
+    writeFileSync(
+      join(xdgConfig, 'opencode', 'opencode.json'),
+      JSON.stringify({ providers: { acme, shared: { name: 'Shared', models: {} } } })
+    );
+    mkdirSync(join(botRoot, 'sessions', 'opencode'), { recursive: true });
+    writeFileSync(
+      join(botRoot, 'sessions', 'opencode', 'auth.json'),
+      JSON.stringify({ anthropic: { type: 'api', key: 'bot-anthropic' } })
+    );
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    writeFileSync(
+      join(botRoot, 'config', 'opencode', 'opencode.json'),
+      JSON.stringify({ providers: { mine: { name: 'Mine', models: {} } } })
+    );
+
+    await expect(importOpenCodeGlobalConfig(botRoot, silentLogger)).resolves.toBe(true);
+
+    // The bot's own key wins; the global-only key joins it.
+    expect(readJson(join(botRoot, 'sessions', 'opencode', 'auth.json'))).toEqual({
+      anthropic: { type: 'api', key: 'bot-anthropic' },
+      openai: { type: 'api', key: 'global-openai' },
+    });
+    // Missing global providers are copied verbatim into the bot's own block.
+    const written = readJson(join(botRoot, 'config', 'opencode', 'opencode.json')) as {
+      providers: Record<string, unknown>;
+    };
+    expect(Object.keys(written.providers).sort()).toEqual(['acme', 'mine', 'shared']);
+    expect(written.providers['acme']).toEqual(acme);
+  });
+
+  it('succeeds with nothing to copy when the machine holds no OpenCode config', async () => {
+    const botRoot = tempRoot();
+    process.env.XDG_CONFIG_HOME = tempRoot();
+    process.env.XDG_DATA_HOME = tempRoot();
+    mkdirSync(join(botRoot, 'sessions', 'opencode'), { recursive: true });
+    await expect(importOpenCodeGlobalConfig(botRoot, silentLogger)).resolves.toBe(true);
+  });
 });

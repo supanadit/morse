@@ -167,6 +167,12 @@ export interface BotProviderModel {
    * has to say so explicitly for Morse (and the engine) to send it an image.
    */
   input?: ModelInput[];
+  /** Whether the model can reason; enables the thinking-level picker. */
+  reasoning?: boolean;
+  /** Level → the engine's own value; null disables a level (pi writes this map). */
+  thinking?: Partial<Record<ThinkingLevel, string | null>>;
+  /** Enabled thinking levels (OpenCode writes variants). */
+  thinkingLevels?: ThinkingLevel[];
 }
 
 /**

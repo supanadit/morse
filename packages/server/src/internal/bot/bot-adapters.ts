@@ -2,11 +2,13 @@ import type { BotEngineAdapter, MorseLogger } from '@morse/system';
 import {
   botPiEnv,
   createBotPiFactory,
+  importPiGlobalConfig,
   PI_BOT_CAPABILITIES,
   piBotLayout,
 } from '@morse/integration-pi';
 import {
   OPENCODE_BOT_CAPABILITIES,
+  importOpenCodeGlobalConfig,
   openCodeBotLayout,
   opencodeBotAdapterFactory,
   importOpenCodeGoCredential,
@@ -30,6 +32,9 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // agent-dir override from `botPiEnv`, never the reader's real one.
       createFactory: (botRoot, env) =>
         createBotPiFactory({ botRoot, env: env ?? botPiEnv(botRoot), logger }),
+      // A checked "Use global configuration" snapshots the machine's own
+      // `auth.json` and `models.json` providers into the bot; the bot wins.
+      importGlobalConfig: (botRoot) => Promise.resolve(importPiGlobalConfig(botRoot)),
       // pi's agent dir (`config/`) *is* the bot's `~/.pi/agent`: auth.json,
       // models.json, settings.json and AGENTS.md, in pi's own shapes.
       layout: piBotLayout,
@@ -43,6 +48,10 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // A Go login lives in the user's OpenCode store, not in a field. The host
       // reads it when a probe or a save asks for Go; it never reaches a client.
       importGoCredential: (botRoot) => importOpenCodeGoCredential(botRoot, logger),
+      // A checked "Use global configuration" snapshots the machine's auth
+      // store and custom providers into the bot, Go login included; the bot
+      // wins on conflict.
+      importGlobalConfig: (botRoot) => importOpenCodeGlobalConfig(botRoot, logger),
       // OpenCode's `opencode.json` follows opencode.ai/config.json: model,
       // providers, agents and instructions, beside its own auth store.
       layout: openCodeBotLayout,

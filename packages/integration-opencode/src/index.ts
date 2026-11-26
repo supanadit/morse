@@ -20,6 +20,7 @@ export {
   OPENCODE_BOT_CAPABILITIES,
   botOpenCodeEnv,
   createBotOpenCodeEngine,
+  importOpenCodeGlobalConfig,
   opencodeBotAdapterFactory,
   writeOpenCodeCredentials,
   writeOpenCodeProviders,

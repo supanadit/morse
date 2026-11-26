@@ -311,6 +311,12 @@ export interface BotProviderModelInput {
    * actually take an image, and what bot mode's paste gate reads.
    */
   input?: ModelInput[];
+  /** Whether the model can reason; enables the thinking-level picker. */
+  reasoning?: boolean;
+  /** Level → the engine's own value; null disables a level (pi writes this map). */
+  thinking?: Partial<Record<ThinkingLevel, string | null>>;
+  /** Enabled thinking levels (OpenCode writes variants). */
+  thinkingLevels?: ThinkingLevel[];
 }
 
 /**
@@ -364,10 +370,17 @@ export interface BotCreateInput {
   avatar?: string;
   /** The stable engine kind (`pi`, `opencode`). */
   engineKind: string;
-  /** The bot's own credentials; never copied from the reader's global config. */
+  /** The bot's own credentials; pasted here, or copied from global on request. */
   credentials: BotCredentialInput[];
   /** Use the OpenCode Go login already stored on this machine (OpenCode bots only). */
   useGoAuth?: boolean;
+  /**
+   * Copy this machine's global engine configuration — stored keys and custom
+   * providers — into this bot on submit. A snapshot: the bot keeps its own
+   * copy afterwards, so later global changes do not follow it. Anything the
+   * wizard collected itself wins on conflict.
+   */
+  useGlobalConfig?: boolean;
   /** Names of the host's environment variables the bot's engine inherits. */
   envVars: string[];
   /** Values defined only for this bot; they override host variables of the same name. */
@@ -463,6 +476,12 @@ export interface BotUpdateInput {
   credentials?: BotCredentialInput[];
   /** Use the machine's OpenCode Go login for this bot (OpenCode bots only). */
   useGoAuth?: boolean;
+  /**
+   * Copy this machine's current global engine configuration — stored keys and
+   * custom providers — into this bot on save. A snapshot: the bot keeps its
+   * own copy afterwards. Anything the form collected itself wins on conflict.
+   */
+  useGlobalConfig?: boolean;
   /**
    * Providers whose model fields the reader corrected — a context window, an output
    * cap, an image modality. Written into the engine's own config around the

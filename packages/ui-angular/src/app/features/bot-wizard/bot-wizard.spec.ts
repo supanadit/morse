@@ -4,7 +4,7 @@ import type {
   BotMcpServerInput,
   BotSummary,
   HostToClientMessage,
-  ModelOption,
+  ProviderStatus,
 } from '@morse/protocol';
 import { MemoryHostTransport } from '@morse/ui-runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,12 +20,6 @@ const forge: BotSummary = {
   warm: false,
 };
 
-const claude: ModelOption = {
-  provider: 'anthropic',
-  id: 'claude-sonnet-4',
-  name: 'Claude Sonnet 4',
-};
-
 /** One stdio server, as both a create sends it and an edit reads it back. */
 const filesystemServer: BotMcpServerInput = {
   name: 'filesystem',
@@ -35,6 +29,38 @@ const filesystemServer: BotMcpServerInput = {
   enabled: true,
 };
 
+const claude = {
+  provider: 'anthropic',
+  id: 'claude-sonnet-4',
+  name: 'Claude Sonnet 4',
+};
+
+/** The engine catalog the mocked host reports for every engine. */
+const catalogStatus: ProviderStatus = {
+  engine: 'pi',
+  providers: [
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      description: 'Claude models',
+      kind: 'builtin',
+      connected: true,
+      auth: { key: true },
+      models: [{ id: 'claude-sonnet-4', name: 'Claude Sonnet 4' }],
+    },
+    {
+      id: 'opencode-go',
+      name: 'OpenCode Go',
+      description: 'GLM models',
+      kind: 'builtin',
+      connected: true,
+      auth: { key: true },
+      models: [{ id: 'glm-5.2', name: 'GLM-5.2' }],
+    },
+  ],
+  issues: [],
+};
+
 /** The mock host, able to push a message (a notice) by hand. */
 class ScriptedHost extends MemoryHostTransport {
   toClient(message: HostToClientMessage): void {
@@ -42,14 +68,12 @@ class ScriptedHost extends MemoryHostTransport {
   }
 }
 
-let lastProbe: ProbeSpy | undefined;
-
 async function render(): Promise<{
   fixture: ComponentFixture<BotWizard>;
   host: HTMLElement;
   morse: MorseService;
   transport: ScriptedHost;
-  probe: ProbeSpy;
+  status: ReturnType<typeof vi.spyOn>;
 }> {
   TestBed.resetTestingModule();
   const transport = new ScriptedHost();
@@ -58,18 +82,17 @@ async function render(): Promise<{
     providers: [{ provide: MORSE_TRANSPORT, useFactory: () => transport }],
   }).compileComponents();
   const morse = TestBed.inject(MorseService);
-  // Before the first render: a page with an engine answers its catalog at once.
-  const probe = vi.spyOn(morse, 'probeModels');
+  // The wizard reads the engine's provider catalog on open, like Settings does.
+  const status = vi
+    .spyOn(morse, 'requestHostCommand')
+    .mockImplementation(async (name) =>
+      name === 'providerStatus' ? { ...catalogStatus } : { ok: true, message: 'Saved.' },
+    );
   const fixture = TestBed.createComponent(BotWizard);
   fixture.detectChanges();
-  lastProbe = probe;
-  return {
-    fixture,
-    host: fixture.nativeElement as HTMLElement,
-    morse,
-    transport,
-    probe,
-  };
+  await fixture.whenStable();
+  fixture.detectChanges();
+  return { fixture, host: fixture.nativeElement as HTMLElement, morse, transport, status };
 }
 
 function button(host: HTMLElement, selector: string): HTMLButtonElement {
@@ -106,71 +129,31 @@ function tick(fixture: ComponentFixture<BotWizard>): void {
   fixture.detectChanges();
 }
 
-/** The spy shape the walk helpers pass around: the probe's own arguments. */
-interface ProbeSpy {
-  mock: {
-    calls: [
-      string,
-      string[],
-      { provider: string; apiKey: string }[],
-      string,
-      Record<string, string>?,
-      boolean?,
-    ][];
-  };
-}
-
 /**
- * A new bot with its name, the line it helps with, and an engine: one page means
- * one fill, and the probe fires the moment the engine is picked.
+ * A new bot with its name, the line it helps with, and an engine. The catalog
+ * is read when the engine is picked, so the models are already listed after.
  */
-function walkToConnect(
+async function walkToConnect(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
-  _morse: MorseService,
   kind: string,
-): { probe: ProbeSpy } {
+): Promise<void> {
   fill(host, 'input[placeholder="News Finder"]', 'Forge');
   fill(host, 'textarea[placeholder^="Compare options"]', 'Keeps the forge hot');
   // Written by the test, not seeded: the assertions below compare the payload.
   fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge.');
   tick(fixture);
-  const engines = [...host.querySelectorAll('.brain-rail .brain-pick')] as HTMLButtonElement[];
+  const engines = [...host.querySelectorAll('.engine-rail .engine-pick')] as HTMLButtonElement[];
   const match = engines.find((one) => one.textContent?.toLowerCase().includes(kind));
   match?.click();
   tick(fixture);
-  return { probe: lastProbe as ProbeSpy };
-}
-
-/** Answers the last catalog probe with a list of models. */
-function answerModels(
-  fixture: ComponentFixture<BotWizard>,
-  morse: MorseService,
-  probe: ProbeSpy,
-  models: ModelOption[],
-): void {
-  const call = probe.mock.calls.at(-1);
-  morse.bot.onModels({ requestId: call?.[3] ?? '', kind: call?.[0] ?? 'pi', models });
+  await fixture.whenStable();
   tick(fixture);
 }
 
-/** Answers the catalog probe the wizard already sent, then picks the first model. */
-function pickCatalogModel(
-  fixture: ComponentFixture<BotWizard>,
-  host: HTMLElement,
-  morse: MorseService,
-  probe: ProbeSpy,
-  model: ModelOption = claude,
-): void {
-  const call = probe.mock.calls.at(-1);
-  morse.bot.onModels({
-    requestId: call?.[3] ?? '',
-    // The answer belongs to the engine that was asked for it.
-    kind: call?.[0] ?? 'pi',
-    models: [model],
-  });
-  tick(fixture);
-  button(host, '.model-option').click();
+/** Picks the first model the picked provider lists. */
+function pickFirstModel(host: HTMLElement, fixture: ComponentFixture<BotWizard>): void {
+  button(host, '.model-pick').click();
   tick(fixture);
 }
 
@@ -218,16 +201,37 @@ function fillAndCommit(host: HTMLElement, selector: string, value: string): void
 }
 
 /** A filled page, ready to submit: the name, the engine, a model and its rows. */
-function walkToReview(
+async function walkToReview(
   fixture: ComponentFixture<BotWizard>,
   host: HTMLElement,
   morse: MorseService,
   kind: string,
   options: { mcp?: boolean; agentsMd?: string; subagent?: boolean } = {},
-): void {
-  const { probe } = walkToConnect(fixture, host, morse, kind);
-  pickCatalogModel(fixture, host, morse, probe);
+): Promise<void> {
+  await walkToConnect(fixture, host, kind);
+  pickFirstModel(host, fixture);
   fillAdvanced(fixture, host, options);
+  void morse;
+}
+
+/** Opens the local-provider editor and fills its endpoint fields. */
+function openLocalEditor(
+  host: HTMLElement,
+  fixture: ComponentFixture<BotWizard>,
+  options: { id?: string; label?: string; baseUrl?: string } = {},
+): void {
+  button(host, '.card.custom').click();
+  tick(fixture);
+  fill(host, '.local-editor input[placeholder="acme"]', options.id ?? 'acme');
+  if (options.label !== undefined) {
+    fill(host, '.local-editor input[placeholder="Acme AI"]', options.label);
+  }
+  fill(
+    host,
+    '.local-editor input[placeholder="https://api.example.com/v1"]',
+    options.baseUrl ?? 'https://llm.acme.example/v1',
+  );
+  tick(fixture);
 }
 
 describe('BotWizard', () => {
@@ -262,7 +266,7 @@ describe('BotWizard', () => {
   });
 
   it('holds Create until the bot has a name, a handle, instructions and a model', async () => {
-    const { fixture, host, morse } = await render();
+    const { fixture, host } = await render();
     const create = (): HTMLButtonElement => button(host, '.board-foot .primary');
 
     expect(create().disabled).toBe(true);
@@ -273,13 +277,7 @@ describe('BotWizard', () => {
     // Name, handle and instructions are there — the model is not.
     expect(create().disabled).toBe(true);
 
-    const probe = lastProbe as ProbeSpy;
-    const requestId = probe.mock.calls.at(-1)?.[3] ?? '';
-    morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
-    tick(fixture);
-    expect(create().disabled).toBe(true);
-
-    button(host, '.model-option').click();
+    button(host, '.model-pick').click();
     tick(fixture);
     expect(create().disabled).toBe(false);
 
@@ -291,29 +289,26 @@ describe('BotWizard', () => {
     expect(create().disabled).toBe(true);
   });
 
-  it('sends bot-only env values with the create and the catalog probe', async () => {
-    const { fixture, host, morse, probe } = await render();
-    walkToConnect(fixture, host, morse, 'pi');
-    answerModels(fixture, morse, probe, [claude]);
+  it('sends bot-only env values with the create', async () => {
+    const { fixture, host, morse, status } = await render();
+    await walkToConnect(fixture, host, 'pi');
     fill(
       host,
       'textarea[placeholder="ACME_TOKEN=only-this-bot"]',
       'ACME_TOKEN=secret\nREGION=eu',
     );
     tick(fixture);
-    // The catalog is probed when the engine is picked; Reload re-asks with the
-    // values the form now holds.
-    (host.querySelector('input.model-search + button') as HTMLButtonElement).click();
+    // Reload re-reads the engine's providers.
+    button(host, '.provider-toolbar .ghost').click();
     tick(fixture);
-    pickCatalogModel(fixture, host, morse, probe);
+    pickFirstModel(host, fixture);
     const create = vi.spyOn(morse, 'createBot');
 
     button(host, '.board-foot .primary').click();
     tick(fixture);
 
-    const expected = { ACME_TOKEN: 'secret', REGION: 'eu' };
-    expect(probe.mock.calls.at(-1)?.[4]).toEqual(expected);
-    expect(create.mock.calls[0]?.[0].env).toEqual(expected);
+    expect(status).toHaveBeenCalledWith('providerStatus', { engine: 'pi' });
+    expect(create.mock.calls[0]?.[0].env).toEqual({ ACME_TOKEN: 'secret', REGION: 'eu' });
   });
 
   it('saves an edit from the footer, with no rail and no review to walk to', async () => {
@@ -332,10 +327,12 @@ describe('BotWizard', () => {
       envVars: [],
     });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
-    // One page: every section is a row on it, and nothing is behind a step.
+    // One page: every section is on it, and nothing is behind a step.
     expect(host.querySelector('.rows')).not.toBeNull();
-    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(6);
+    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(5);
     expect(button(host, '.board-foot .primary').textContent?.trim()).toBe('Save bot');
 
     // Change one field in the middle section and save straight away.
@@ -362,20 +359,12 @@ describe('BotWizard', () => {
     expect(host.textContent).toContain('What other bots read when they look for help');
   });
 
-  it('asks the catalog on open, and holds Create until a model is picked', async () => {
-    const { fixture, host, morse, probe } = await render();
+  it('reads the engine catalog on open, and holds Create until a model is picked', async () => {
+    const { fixture, host, status } = await render();
 
-    // An engine is chosen for the reader, so the question the model row asks is
-    // already answered with a list.
-    const firstCall = probe.mock.calls[0];
-    expect(firstCall?.[0]).toBe('pi');
-    expect(firstCall?.[2]).toEqual([]);
-    expect(host.querySelector('.board-body')?.textContent).toContain('Loading');
-
-    const requestId = firstCall?.[3] ?? '';
-    morse.bot.onModels({ requestId, kind: 'pi', models: [claude] });
-    tick(fixture);
-    expect(host.querySelector('.model-list')).not.toBeNull();
+    // An engine is chosen for the reader, and its providers answer at once.
+    expect(status).toHaveBeenCalledWith('providerStatus', { engine: 'pi' });
+    expect(host.querySelector('.provider-grid')).not.toBeNull();
     expect(host.querySelector('.board-body')?.textContent).toContain('Pick a model');
     expect(button(host, '.board-foot .primary').disabled).toBe(true);
 
@@ -384,115 +373,186 @@ describe('BotWizard', () => {
     tick(fixture);
     expect(button(host, '.board-foot .primary').disabled).toBe(true);
 
-    button(host, '.model-option').click();
+    button(host, '.model-pick').click();
     tick(fixture);
     expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
-  it('shows engines, providers with their keys, and models in three columns', async () => {
-    const { fixture, host, morse, probe } = await render();
-
-    answerModels(fixture, morse, probe, [
-      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
-      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
-    ]);
+  it('shows engines and provider cards with isolated key fields', async () => {
+    const { fixture, host } = await render();
 
     // Column one: the engines.
     expect(
-      [...host.querySelectorAll('.brain-rail .brain-pick-name')].map((one) =>
+      [...host.querySelectorAll('.engine-rail .engine-pick-name')].map((one) =>
         one.textContent?.trim(),
       ),
     ).toEqual(['pi', 'OpenCode']);
 
-    // Column two: nothing but key fields — one per provider the engine's own
-    // catalog names, its environment name as the placeholder, no label or button.
-    const keys = [...host.querySelectorAll('.brain-key')] as HTMLInputElement[];
-    const placeholders = keys.map((one) => one.getAttribute('placeholder'));
-    expect(placeholders).toContain('ANTHROPIC_API_KEY');
-    expect(placeholders).toContain('OPENCODE_GO_API_KEY');
-    // The engine's whole catalog is there, not just what one probe answered.
-    expect(placeholders.length).toBeGreaterThan(20);
-    // The providers the catalog answered for are the live rows, and lead.
-    expect(keys[0]?.getAttribute('placeholder')).toBe('ANTHROPIC_API_KEY');
-
-    // Column three: the models of the provider in front, and only those.
-    expect(
-      [...host.querySelectorAll('.brain-models .model-name')].map((one) =>
-        one.textContent?.trim(),
-      ),
-    ).toEqual(['Claude Sonnet 4']);
-
-    // Clicking another provider's key row swaps the third column at once.
-    const opencodeGo = host.querySelector(
-      'input[placeholder="OPENCODE_GO_API_KEY"]',
-    ) as HTMLInputElement;
-    opencodeGo.dispatchEvent(new Event('focus'));
-    tick(fixture);
-    expect(host.querySelector('.brain-key.on')?.getAttribute('placeholder')).toBe(
-      'OPENCODE_GO_API_KEY',
+    // The engine's whole catalog is there as cards, models included.
+    const cards = [...host.querySelectorAll('.provider-grid .card')] as HTMLElement[];
+    expect(cards.map((card) => card.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Anthropic')]),
     );
+    // The host's own sign-ins never leak in: no card reads as connected here.
+    expect(host.querySelector('.provider-grid')?.textContent).not.toContain('Connected');
+
+    // Clicking another card swaps the detail at once, with its own key field.
+    const opencodeGo = cards.find((card) => card.textContent?.includes('OpenCode Go')) as HTMLElement;
+    (opencodeGo.querySelector('button') ?? opencodeGo).click();
+    tick(fixture);
+    // The detail is the picked provider's, with an isolated key field.
+    expect(host.querySelector('.provider-detail .detail-head')?.textContent).toContain(
+      'OpenCode Go',
+    );
+    const key = host.querySelector(
+      '.provider-detail input[type="password"]',
+    ) as HTMLInputElement;
+    expect(key.getAttribute('placeholder')).toBe('OPENCODE_GO_API_KEY');
     expect(
-      [...host.querySelectorAll('.brain-models .model-name')].map((one) =>
+      [...host.querySelectorAll('.model-pick .model-name')].map((one) =>
         one.textContent?.trim(),
       ),
     ).toEqual(['GLM-5.2']);
   });
 
-  it('asks for the machine’s OpenCode Go login without a key field', async () => {
-    const { fixture, host, morse, probe } = await render();
-    walkToConnect(fixture, host, morse, 'opencode');
+  it('hides global custom endpoints until the snapshot box is checked', async () => {
+    const { fixture, host, status } = await render();
+    status.mockResolvedValue({
+      engine: 'pi',
+      providers: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          description: 'Claude models',
+          kind: 'builtin',
+          connected: false,
+          auth: { key: true },
+          models: [{ id: 'claude-sonnet-4', name: 'Claude Sonnet 4' }],
+        },
+        {
+          id: 'llm-eigen',
+          name: 'LLM Eigen',
+          description: 'Custom endpoint',
+          kind: 'custom',
+          connected: true,
+          models: [{ id: 'eigen-1', name: 'Eigen 1' }],
+        },
+      ],
+      issues: [],
+    });
+    await walkToConnect(fixture, host, 'pi');
+    // The catalog was read on open with the default mock; re-read with ours.
+    button(host, '.provider-toolbar .ghost').click();
+    tick(fixture);
+    await fixture.whenStable();
+    tick(fixture);
 
-    const toggle = host.querySelector<HTMLInputElement>('.brain-go input');
+    // Unchecked: a private global endpoint does not even leak its name.
+    expect(host.querySelector('.provider-grid')?.textContent).not.toContain('LLM Eigen');
+
+    const toggle = host.querySelector<HTMLInputElement>('.global-auth input')!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    tick(fixture);
+    await fixture.whenStable();
+    tick(fixture);
+
+    // Checked: it appears, previewing its global connection.
+    const grid = host.querySelector('.provider-grid')?.textContent ?? '';
+    expect(grid).toContain('LLM Eigen');
+    expect(grid).toContain('Global');
+  });
+
+  it('previews globally connected providers while the snapshot box is checked', async () => {
+    const { fixture, host } = await render();
+    await walkToConnect(fixture, host, 'pi');
+
+    // Unchecked: the host's own sign-ins stay hidden — the bot reads nothing.
+    expect(host.querySelector('.provider-grid')?.textContent).not.toContain('Global');
+
+    const toggle = host.querySelector<HTMLInputElement>('.global-auth input')!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    tick(fixture);
+
+    // Checked: the catalog's connected providers preview live as Global.
+    const grid = host.querySelector('.provider-grid')?.textContent ?? '';
+    expect(grid).toContain('Global');
+    // A pasted key still wins and reads as its own.
+    fillAndCommit(host, '.provider-detail input[type="password"]', 'sk-ant-123');
+    tick(fixture);
+    const card = [...host.querySelectorAll('.provider-grid .card')].find((one) =>
+      one.textContent?.includes('Anthropic'),
+    ) as HTMLElement;
+    expect(card.textContent).toContain('Key set');
+
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    tick(fixture);
+    expect(host.querySelector('.provider-grid')?.textContent).not.toContain('Global');
+  });
+
+  it('snapshots the global configuration into the bot when checked', async () => {
+    const { fixture, host, morse } = await render();
+    await walkToConnect(fixture, host, 'pi');
+
+    const toggle = host.querySelector<HTMLInputElement>('.global-auth input');
     expect(toggle).not.toBeNull();
+    expect(host.textContent).toContain('Use global configuration');
     toggle!.checked = true;
     toggle!.dispatchEvent(new Event('change'));
     tick(fixture);
 
-    expect(probe.mock.calls.at(-1)?.[5]).toBe(true);
+    pickFirstModel(host, fixture);
+    finishFromConnect(fixture, host);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ useGlobalConfig: true });
   });
 
-  it('commits a key from the provider row and asks the catalog again', async () => {
-    const { fixture, host, morse, probe } = await render();
+  it('commits a key for the picked provider and sends it isolated with the create', async () => {
+    const { fixture, host, morse } = await render();
+    await walkToConnect(fixture, host, 'pi');
 
-    answerModels(fixture, morse, probe, [
-      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
-      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
-    ]);
-
-    const anthropicKey = host.querySelector(
-      'input[placeholder="ANTHROPIC_API_KEY"]',
+    // Anthropic is picked by default; its key field is in the detail.
+    const key = host.querySelector(
+      '.provider-detail input[type="password"]',
     ) as HTMLInputElement;
-    anthropicKey.value = 'sk-ant-123';
-    anthropicKey.dispatchEvent(new Event('change'));
+    expect(key.getAttribute('placeholder')).toBe('ANTHROPIC_API_KEY');
+    fillAndCommit(host, '.provider-detail input[type="password"]', 'sk-ant-123');
     tick(fixture);
 
-    expect(probe.mock.calls.at(-1)?.[2]).toEqual([{ provider: 'anthropic', apiKey: 'sk-ant-123' }]);
+    pickFirstModel(host, fixture);
+    const create = vi.spyOn(morse, 'createBot');
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
 
-    // The answer lands, and the key it holds is still in its row.
-    answerModels(fixture, morse, probe, [
-      { provider: 'anthropic', id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
-      { provider: 'opencode-go', id: 'glm-5.2', name: 'GLM-5.2' },
+    // The key travels isolated with the bot — never through the host's store.
+    expect(create.mock.calls[0]?.[0]?.credentials).toEqual([
+      { provider: 'anthropic', apiKey: 'sk-ant-123' },
     ]);
+    // …and the card now reads as keyed, from this bot's key alone.
+    const card = [...host.querySelectorAll('.provider-grid .card')].find((one) =>
+      one.textContent?.includes('Anthropic'),
+    ) as HTMLElement;
+    expect(card.textContent).toContain('Key set');
+    // The key it holds is still in its field.
     expect(
-      (host.querySelector('input[placeholder="ANTHROPIC_API_KEY"]') as HTMLInputElement).value,
+      (host.querySelector('.provider-detail input[type="password"]') as HTMLInputElement).value,
     ).toBe('sk-ant-123');
   });
 
   it('adds a custom provider, discovers its models over HTTP, and saves it', async () => {
     const { fixture, host, morse } = await render();
-    walkToConnect(fixture, host, morse, 'pi');
+    await walkToConnect(fixture, host, 'pi');
 
-    button(host, '.add-provider').click();
-    tick(fixture);
-    fill(host, 'input[placeholder="acme"]', 'acme');
-    fill(host, 'input[placeholder="Acme AI"]', 'Acme AI');
-    fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
-    choose(host, 'select', 'openai-completions');
-    fill(host, '.draft .field input[type="password"]', 'sk-acme');
+    openLocalEditor(host, fixture, { label: 'Acme AI' });
+    fill(host, '.local-editor input[type="password"]', 'sk-acme');
     tick(fixture);
 
     const discover = vi.spyOn(morse, 'discoverModels');
-    button(host, '.draft-discover .ghost').click();
+    button(host, '.editor-discover .ghost').click();
     tick(fixture);
     expect(discover).toHaveBeenCalledTimes(1);
     expect(discover.mock.calls[0]?.[0]).toBe('https://llm.acme.example/v1');
@@ -507,20 +567,27 @@ describe('BotWizard', () => {
       ],
     });
     tick(fixture);
-    expect(host.querySelector('.ok')?.textContent).toContain('2 models discovered');
+    const rows = [...host.querySelectorAll('.local-editor tr.model-main')] as HTMLElement[];
+    expect(rows.map((row) => (row.querySelector('input') as HTMLInputElement).value)).toEqual(
+      expect.arrayContaining(['qwen3-coder', 'qwen3-32b']),
+    );
 
     // A hand-added row is always possible too.
-    fill(host, 'input[placeholder="model-id"]', 'acme-chat');
-    button(host, '.model-add .ghost').click();
+    button(host, '.editor-models-head .secondary').click();
     tick(fixture);
-    expect(host.textContent).toContain('acme-chat');
+    const ids = [...host.querySelectorAll('.local-editor input[aria-label="Model ID"]')] as HTMLInputElement[];
+    type(ids.at(-1) as HTMLInputElement, 'acme-chat');
+    tick(fixture);
 
-    button(host, '.draft-actions .primary').click();
+    button(host, '.editor-actions .primary').click();
     tick(fixture);
-    expect(host.querySelector('.provider-card')?.textContent).toContain('Acme AI');
+    const card = [...host.querySelectorAll('.provider-grid .card')].find((one) =>
+      one.textContent?.includes('Acme AI'),
+    ) as HTMLElement;
+    expect(card?.textContent).toContain('This bot');
 
     // The saved provider is part of the create payload.
-    button(host, '.model-option').click();
+    button(host, '.provider-detail .model-pick').click();
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
@@ -545,16 +612,13 @@ describe('BotWizard', () => {
 
   it('takes a model’s limits and modalities from discovery, and lets the reader correct them', async () => {
     const { fixture, host, morse } = await render();
-    walkToConnect(fixture, host, morse, 'pi');
+    await walkToConnect(fixture, host, 'pi');
 
-    button(host, '.add-provider').click();
-    tick(fixture);
-    fill(host, 'input[placeholder="acme"]', 'acme');
-    fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
+    openLocalEditor(host, fixture);
     tick(fixture);
 
     const discover = vi.spyOn(morse, 'discoverModels');
-    button(host, '.draft-discover .ghost').click();
+    button(host, '.editor-discover .ghost').click();
     tick(fixture);
     const requestId = discover.mock.calls[0]?.[2] ?? '';
     morse.bot.onModels({
@@ -576,25 +640,31 @@ describe('BotWizard', () => {
     });
     tick(fixture);
 
-    const rows = [...host.querySelectorAll('.model-row')];
+    const rows = [...host.querySelectorAll('.local-editor tr.model-main')];
     const [chatRow, visionRow] = rows as HTMLElement[];
     // Discovery's numbers arrive in the boxes, ready to be corrected.
-    expect((visionRow?.querySelectorAll('input')[0] as HTMLInputElement).value).toBe('32000');
-    expect((visionRow?.querySelectorAll('input')[1] as HTMLInputElement).value).toBe('4096');
-    expect(visionRow?.querySelector('.cap-toggle')?.classList.contains('on')).toBe(true);
-    // Nothing was found for the other one, so its boxes say "default", not a guess.
-    expect((chatRow?.querySelectorAll('input')[0] as HTMLInputElement).value).toBe('');
-    expect(chatRow?.querySelector('.cap-toggle')?.classList.contains('on')).toBe(false);
+    expect(
+      (visionRow?.querySelector('input[aria-label="Context limit"]') as HTMLInputElement).value,
+    ).toBe('32000');
+    expect(
+      (visionRow?.querySelector('input[aria-label="Max output"]') as HTMLInputElement).value,
+    ).toBe('4096');
 
-    // The reader fixes the window and gives the other model images too.
-    type(chatRow?.querySelectorAll('input')[0] as HTMLInputElement, '200000');
-    type(chatRow?.querySelectorAll('input')[1] as HTMLInputElement, '8192');
-    (chatRow?.querySelector('.cap-toggle') as HTMLButtonElement).click();
+    // The reader fixes the window of the plain one.
+    type(chatRow?.querySelector('input[aria-label="Context limit"]') as HTMLInputElement, '200000');
+    type(chatRow?.querySelector('input[aria-label="Max output"]') as HTMLInputElement, '8192');
+    // …and gives it images through the capabilities popup, like Settings.
+    (chatRow?.querySelector('.col-caps .menu-trigger') as HTMLButtonElement).click();
+    tick(fixture);
+    const imageOption = [...host.querySelectorAll('.local-editor .menu-row')].find((row) =>
+      row.textContent?.includes('Vision (images)'),
+    ) as HTMLButtonElement;
+    imageOption.click();
     tick(fixture);
 
-    button(host, '.draft-actions .primary').click();
+    button(host, '.editor-actions .primary').click();
     tick(fixture);
-    button(host, '.model-option').click();
+    button(host, '.provider-detail .model-pick').click();
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
@@ -602,16 +672,16 @@ describe('BotWizard', () => {
     tick(fixture);
 
     const submitted = create.mock.calls[0]?.[0] as BotCreateInput;
-    // Written into the engine's own model entries: pi's `contextWindow`,
-    // `maxTokens` and `input` — a text-only default is not assumed for a model
-    // the reader said takes images.
+    // Written into the bot's own model entries: the window, the cap and the
+    // modalities — a text-only default is not assumed for a model the reader
+    // said takes images.
     expect(submitted.providers?.[0]?.models).toEqual([
       {
         id: 'acme-chat',
         name: 'Acme Chat',
         contextWindow: 200_000,
         maxTokens: 8_192,
-        input: ['text', 'image'],
+        input: ['image'],
       },
       {
         id: 'acme-vision',
@@ -625,15 +695,12 @@ describe('BotWizard', () => {
 
   it('clears a limit back to the engine default when the box is emptied', async () => {
     const { fixture, host, morse } = await render();
-    walkToConnect(fixture, host, morse, 'pi');
+    await walkToConnect(fixture, host, 'pi');
 
-    button(host, '.add-provider').click();
-    tick(fixture);
-    fill(host, 'input[placeholder="acme"]', 'acme');
-    fill(host, 'input[placeholder="https://api.example.com/v1"]', 'https://llm.acme.example/v1');
+    openLocalEditor(host, fixture);
     tick(fixture);
     const discover = vi.spyOn(morse, 'discoverModels');
-    button(host, '.draft-discover .ghost').click();
+    button(host, '.editor-discover .ghost').click();
     tick(fixture);
     morse.bot.onModels({
       requestId: discover.mock.calls[0]?.[2] ?? '',
@@ -650,13 +717,13 @@ describe('BotWizard', () => {
     });
     tick(fixture);
 
-    const row = host.querySelector('.model-row') as HTMLElement;
+    const row = host.querySelector('.local-editor tr.model-main') as HTMLElement;
     // Empty means "nobody knows": the field is dropped, not written as 0.
-    type(row.querySelectorAll('input')[0] as HTMLInputElement, '');
+    type(row.querySelector('input[aria-label="Context limit"]') as HTMLInputElement, '');
 
-    button(host, '.draft-actions .primary').click();
+    button(host, '.editor-actions .primary').click();
     tick(fixture);
-    button(host, '.model-option').click();
+    button(host, '.provider-detail .model-pick').click();
     tick(fixture);
     finishFromConnect(fixture, host);
     const create = vi.spyOn(morse, 'createBot');
@@ -669,13 +736,78 @@ describe('BotWizard', () => {
     ]);
   });
 
+  it('limits the thinking levels to the picked model’s own', async () => {
+    const { fixture, host, status } = await render();
+    status.mockResolvedValue({
+      engine: 'pi',
+      providers: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          description: 'Claude models',
+          kind: 'builtin',
+          connected: true,
+          auth: { key: true },
+          models: [
+            {
+              id: 'claude-sonnet-4',
+              name: 'Claude Sonnet 4',
+              reasoning: true,
+              thinkingLevels: ['low', 'medium'],
+              thinking: { low: 'low', medium: 'medium', high: null },
+            },
+          ],
+        },
+        {
+          id: 'opencode-go',
+          name: 'OpenCode Go',
+          description: 'GLM models',
+          kind: 'builtin',
+          connected: true,
+          auth: { key: true },
+          models: [{ id: 'glm-5.2', name: 'GLM-5.2', thinking: { high: 'high', off: null } }],
+        },
+      ],
+      issues: [],
+    });
+    button(host, '.provider-toolbar .ghost').click();
+    tick(fixture);
+    await fixture.whenStable();
+    tick(fixture);
+
+    const values = (): string[] =>
+      [...host.querySelectorAll('.providers select option')].map(
+        (one) => (one as HTMLOptionElement).value,
+      );
+    // Nothing picked yet: the full engine vocabulary.
+    expect(values()).toEqual(['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+    pickFirstModel(host, fixture);
+    // Claude declares its own set: only those are offered.
+    expect(values()).toEqual(['', 'low', 'medium']);
+    choose(host, '.providers select', 'medium');
+    tick(fixture);
+
+    // The other provider only declares `high` (via its thinking map): the
+    // dropdown narrows and the stale pick falls back to the engine default.
+    const go = [...host.querySelectorAll('.provider-grid .card')].find((card) =>
+      card.textContent?.includes('OpenCode Go'),
+    ) as HTMLButtonElement;
+    go.click();
+    tick(fixture);
+    button(host, '.provider-detail .model-pick').click();
+    tick(fixture);
+    expect(values()).toEqual(['', 'high']);
+    expect((host.querySelector('.providers select') as HTMLSelectElement).value).toBe('');
+  });
+
   it('shows the subagent editor for opencode only', async () => {
     const pi = await render();
-    walkToReview(pi.fixture, pi.host, pi.morse, 'pi');
+    await walkToReview(pi.fixture, pi.host, pi.morse, 'pi');
     expect(pi.host.textContent).not.toContain('Subagents');
 
     const opencode = await render();
-    walkToReview(opencode.fixture, opencode.host, opencode.morse, 'opencode');
+    await walkToReview(opencode.fixture, opencode.host, opencode.morse, 'opencode');
     // The subagent row is on the page for an engine that has them.
     expect(opencode.host.textContent).toContain('Subagents');
     button(opencode.host, '.add-subagent').click();
@@ -686,22 +818,16 @@ describe('BotWizard', () => {
 
   it('assembles the exact BotCreateInput on submit, then waits for the roster', async () => {
     const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'opencode');
+    await walkToConnect(fixture, host, 'opencode');
 
-    // The catalog answers first, so the provider's column — and its key field —
-    // is on the page to type into.
-    answerModels(fixture, morse, probe, [claude]);
-
-    // A key typed into its provider's column is committed on blur, and the
-    // catalog is asked again for what it now unlocks.
-    const key = host.querySelector('.brain-key') as HTMLInputElement;
+    // A key typed into the picked provider's field is committed on blur.
+    const key = host.querySelector('.provider-detail input[type="password"]') as HTMLInputElement;
     key.value = 'sk-ant-123';
     key.dispatchEvent(new Event('change'));
     tick(fixture);
-    answerModels(fixture, morse, probe, [claude]);
-    button(host, '.model-option').click();
+    button(host, '.model-pick').click();
     tick(fixture);
-    choose(host, '.brain select', 'high');
+    choose(host, '.providers select', 'high');
     tick(fixture);
 
     finishFromConnect(fixture, host, {
@@ -714,7 +840,6 @@ describe('BotWizard', () => {
     button(host, '.board-foot .primary').click();
     tick(fixture);
 
-    const requestId = probe.mock.calls.at(-1)?.[3] ?? '';
     const expected: BotCreateInput & { requestId: string } = {
       username: 'forge',
       name: 'Forge',
@@ -730,7 +855,7 @@ describe('BotWizard', () => {
       tools: ['read', 'edit', 'glob', 'grep', 'shell'],
       agentsMd: '# Forge workspace',
       subagents: [{ name: 'reviewer', prompt: 'Read the diff and report risks.' }],
-      requestId,
+      requestId: expect.any(String) as unknown as string,
     };
     expect(create).toHaveBeenCalledWith(expected);
     expect(list).toHaveBeenCalledTimes(1);
@@ -740,8 +865,8 @@ describe('BotWizard', () => {
 
   it('adds an MCP server and sends it on create', async () => {
     const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'pi');
-    pickCatalogModel(fixture, host, morse, probe);
+    await walkToConnect(fixture, host, 'pi');
+    pickFirstModel(host, fixture);
 
     // Optional from the first moment: an empty list never holds Next back.
     expect(host.querySelector('.mcp-empty')?.textContent).toContain('No servers yet');
@@ -772,7 +897,7 @@ describe('BotWizard', () => {
   it('closes once the roster names the bot it created', async () => {
     const { fixture, host, morse } = await render();
     morse.ui.wizardOpen.set(true);
-    walkToReview(fixture, host, morse, 'pi');
+    await walkToReview(fixture, host, morse, 'pi');
     const create = vi.spyOn(morse, 'createBot');
     button(host, '.board-foot .primary').click();
     tick(fixture);
@@ -820,7 +945,7 @@ describe('BotWizard', () => {
   it('clears the pending create and shows the notice when the host refuses it', async () => {
     const { fixture, host, morse, transport } = await render();
     morse.ui.wizardOpen.set(true);
-    walkToReview(fixture, host, morse, 'pi');
+    await walkToReview(fixture, host, morse, 'pi');
     button(host, '.board-foot .primary').click();
     tick(fixture);
     expect(host.textContent).toContain('Forge — waiting for the roster to name it');
@@ -864,6 +989,8 @@ describe('BotWizard', () => {
       subagents: [{ name: 'reviewer', prompt: 'Read the diff.' }],
     });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     expect((host.querySelector('input[placeholder="News Finder"]') as HTMLInputElement).value).toBe(
       'Forge',
@@ -877,8 +1004,8 @@ describe('BotWizard', () => {
     expect(handle.disabled).toBe(true);
     // No rail and no Review: an edit is one form, saved from the footer.
     expect(host.querySelector('.wizard-rail')).toBeNull();
-    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(6);
-    expect(host.querySelector('.model-option.on')?.textContent).toContain('Claude Sonnet 4');
+    expect(host.querySelectorAll('.row').length).toBeGreaterThanOrEqual(5);
+    expect(host.querySelector('.model-pick.on')?.textContent).toContain('Claude Sonnet 4');
 
     const update = vi.spyOn(morse, 'updateBot');
     button(host, '.board-foot .primary').click();
@@ -1014,7 +1141,7 @@ describe('BotWizard', () => {
       model: claude,
       persona: 'You are Forge.',
       envVars: [],
-      // What the host read out of pi's models.json: no credential, ever.
+      // What the host read out of the bot's own config: no credential, ever.
       providers: [
         {
           id: 'llm-eigen',
@@ -1026,17 +1153,34 @@ describe('BotWizard', () => {
       ],
     });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
-    // The bot's own providers are on the page with their limits — the fields
-    // discovery could not know for this endpoint.
-    const card = [...host.querySelectorAll('.provider-card')].at(-1) as HTMLElement;
-    expect(card.textContent).toContain('llm-eigen');
-    expect(card.querySelector('.model-id')?.textContent?.trim()).toBe('deepseek-v4-flash');
+    // The bot's own provider is a card of its own, with its model in the detail.
+    const card = [...host.querySelectorAll('.provider-grid .card')].find((one) =>
+      one.textContent?.includes('Eigen'),
+    ) as HTMLElement;
+    expect(card.textContent).toContain('This bot');
+    card.click();
+    tick(fixture);
+    expect(host.querySelector('.provider-detail .model-pick')?.textContent).toContain(
+      'deepseek-v4-flash',
+    );
 
-    const [context, maxOut] = [...card.querySelectorAll('input')] as HTMLInputElement[];
-    type(context as HTMLInputElement, '65536');
-    type(maxOut as HTMLInputElement, '8192');
-    (card.querySelector('.cap-toggle') as HTMLButtonElement).click();
+    // Correct the limits in the same editor Settings uses.
+    button(host, '.detail-actions .secondary').click();
+    tick(fixture);
+    const row = host.querySelector('.local-editor tr.model-main') as HTMLElement;
+    type(row.querySelector('input[aria-label="Context limit"]') as HTMLInputElement, '65536');
+    type(row.querySelector('input[aria-label="Max output"]') as HTMLInputElement, '8192');
+    (row.querySelector('.col-caps .menu-trigger') as HTMLButtonElement).click();
+    tick(fixture);
+    const imageOption = [...host.querySelectorAll('.local-editor .menu-row')].find((one) =>
+      one.textContent?.includes('Vision (images)'),
+    ) as HTMLButtonElement;
+    imageOption.click();
+    tick(fixture);
+    button(host, '.editor-actions .primary').click();
     tick(fixture);
 
     const update = vi.spyOn(morse, 'updateBot');
@@ -1044,8 +1188,8 @@ describe('BotWizard', () => {
     tick(fixture);
 
     const sent = update.mock.calls[0]?.[0] as { providers?: unknown; credentials?: unknown };
-    // The correction goes into the engine's own provider entry, with no
-    // credential: the key stays where pi put it.
+    // The correction goes into the bot's own provider entry, with no
+    // credential: the key stays where the engine put it.
     expect(sent.providers).toEqual([
       {
         id: 'llm-eigen',
@@ -1058,7 +1202,7 @@ describe('BotWizard', () => {
             name: 'DeepSeek flash',
             contextWindow: 65_536,
             maxTokens: 8_192,
-            input: ['text', 'image'],
+            input: ['image'],
           },
         ],
       },
@@ -1066,9 +1210,9 @@ describe('BotWizard', () => {
     expect(sent).not.toHaveProperty('credentials');
   });
 
-  it('keeps the saved model selectable when the catalog cannot list it', async () => {
-    const { fixture, host, morse } = await render();
-    const probe = vi.spyOn(morse, 'probeModels');
+  it('keeps the saved model selectable when the catalog lists nothing', async () => {
+    const { fixture, host, morse, status } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
     morse.ui.wizardTarget.set('forge');
     morse.ui.wizardOpen.set(true);
     fixture.detectChanges();
@@ -1082,14 +1226,18 @@ describe('BotWizard', () => {
       envVars: [],
     });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
-    // The edit probes with no keys (Morse cannot read them back), and the catalog
-    // comes back empty.
-    morse.bot.onModels({ requestId: probe.mock.calls.at(-1)?.[3] ?? '', kind: 'pi', models: [] });
+    // The catalog comes back empty after the edit already chose its model.
+    status.mockResolvedValue({ engine: 'pi', providers: [], issues: [] });
+    button(host, '.provider-toolbar .ghost').click();
+    tick(fixture);
+    await fixture.whenStable();
     tick(fixture);
 
-    // Nothing listed, yet the bot's own model stays chosen and the step passes.
-    expect(host.querySelector('.model-option.on')?.textContent).toContain('Claude Sonnet 4');
+    // Nothing listed, yet the bot's own model stays chosen and the save passes.
+    expect(host.querySelector('.model-pick.on')?.textContent).toContain('Claude Sonnet 4');
     expect(button(host, '.board-foot .primary').disabled).toBe(false);
   });
 
@@ -1098,11 +1246,11 @@ describe('BotWizard', () => {
     const next = (): HTMLButtonElement => button(host, '.board-foot .primary');
 
     // Typing a free-text name fills the handle too: 'News Finder' → 'news-finder'.
-    fill(host, 'input[placeholder="News Finder"]', 'News Finder');
+    fill(host, 'input[placeholder="News Finder"]', 'Forge');
     fill(host, 'textarea[placeholder^="You are Forge"]', 'You are Forge.');
     tick(fixture);
     const handle = host.querySelector('input[placeholder="news-finder"]') as HTMLInputElement;
-    expect(handle.value).toBe('news-finder');
+    expect(handle.value).toBe('forge');
     // The handle is fine; the model is the only thing still missing.
     expect(host.querySelector('.error-note')).toBeNull();
 
@@ -1144,8 +1292,8 @@ describe('BotWizard', () => {
 
   it('offers the engine built-in tools, and sends the chosen ones', async () => {
     const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'pi');
-    pickCatalogModel(fixture, host, morse, probe);
+    await walkToConnect(fixture, host, 'pi');
+    pickFirstModel(host, fixture);
     finishFromConnect(fixture, host);
 
     const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
@@ -1174,8 +1322,8 @@ describe('BotWizard', () => {
 
   it('writes no tools key while the reader leaves the engine default alone', async () => {
     const { fixture, host, morse } = await render();
-    const { probe } = walkToConnect(fixture, host, morse, 'pi');
-    pickCatalogModel(fixture, host, morse, probe);
+    await walkToConnect(fixture, host, 'pi');
+    pickFirstModel(host, fixture);
     finishFromConnect(fixture, host);
 
     const create = vi.spyOn(morse, 'createBot');
@@ -1190,7 +1338,7 @@ describe('BotWizard', () => {
 
   it('sends OpenCode’s default tools without the checklist being edited', async () => {
     const { fixture, host, morse } = await render();
-    walkToReview(fixture, host, morse, 'opencode');
+    await walkToReview(fixture, host, morse, 'opencode');
     const create = vi.spyOn(morse, 'createBot');
     button(host, '.board-foot .primary').click();
     tick(fixture);
@@ -1203,7 +1351,7 @@ describe('BotWizard', () => {
 
   it('offers OpenCode 2 tool names, with shell on by default', async () => {
     const { fixture, host, morse } = await render();
-    walkToReview(fixture, host, morse, 'opencode');
+    await walkToReview(fixture, host, morse, 'opencode');
 
     const boxes = [...host.querySelectorAll('.tool input[type="checkbox"]')] as HTMLInputElement[];
     expect(boxes.map((box) => box.getAttribute('data-tool'))).toEqual([
@@ -1228,7 +1376,7 @@ describe('BotWizard', () => {
 
   it('sends shell, not bash or list, when the OpenCode checklist changes', async () => {
     const { fixture, host, morse } = await render();
-    walkToReview(fixture, host, morse, 'opencode');
+    await walkToReview(fixture, host, morse, 'opencode');
 
     const websearch = [...host.querySelectorAll('.tool input[type="checkbox"]')].find(
       (box) => box.getAttribute('data-tool') === 'websearch',

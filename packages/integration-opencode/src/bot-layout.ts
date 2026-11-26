@@ -1,6 +1,6 @@
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { ModelInput } from '@morse/agent';
+import type { ModelInput, ThinkingLevel } from '@morse/agent';
 import type { ConfigDocument, EngineInstance } from '@morse/engine-config';
 import type {
   BotEngineConfig,
@@ -286,11 +286,19 @@ function readProviders(value: unknown): BotProviderRecord[] {
           }
           const limit = asRecord(entry['limit']) ?? {};
           const capabilities = asRecord(entry['capabilities']) ?? {};
-          const input = Array.isArray(capabilities['input'])
-            ? capabilities['input'].filter((one): one is ModelInput => typeof one === 'string')
+          const modalities = asRecord(entry['modalities']) ?? capabilities;
+          const input = Array.isArray(modalities['input'])
+            ? modalities['input'].filter((one): one is ModelInput => typeof one === 'string')
             : undefined;
           const context = asNumber(limit['context']);
           const output = asNumber(limit['output']);
+          const variants = Array.isArray(entry['variants'])
+            ? entry['variants'].flatMap((variant) => {
+                const v = asRecord(variant) ?? {};
+                const id = v['id'];
+                return typeof id === 'string' ? [id as ThinkingLevel] : [];
+              })
+            : undefined;
           return [
             {
               id: modelId,
@@ -300,6 +308,8 @@ function readProviders(value: unknown): BotProviderRecord[] {
               ...(context === undefined ? {} : { contextWindow: context }),
               ...(output === undefined ? {} : { maxTokens: output }),
               ...(input === undefined ? {} : { input }),
+              ...(typeof entry['reasoning'] === 'boolean' ? { reasoning: entry['reasoning'] } : {}),
+              ...(variants === undefined || variants.length === 0 ? {} : { thinkingLevels: variants }),
             },
           ];
         }),
@@ -367,8 +377,16 @@ function openCodeModelEntry(model: BotProviderModel, kept: unknown): unknown {
   const existing = asRecord(kept) ?? {};
   const existingLimit = asRecord(existing['limit']) ?? {};
   const existingCapabilities = asRecord(existing['capabilities']) ?? {};
+  const existingModalities = asRecord(existing['modalities']) ?? {};
   const context = model.contextWindow ?? asNumber(existingLimit['context']);
   const output = model.maxTokens ?? asNumber(existingLimit['output']);
+  const variants = model.thinkingLevels ??
+    (Array.isArray(existing['variants'])
+      ? existing['variants'].flatMap((variant) => {
+          const v = asRecord(variant) ?? {};
+          return typeof v['id'] === 'string' ? [v['id']] : [];
+        })
+      : undefined);
   return {
     ...existing,
     name: model.name ?? asNonEmptyString(existing['name']) ?? model.id,
@@ -381,9 +399,40 @@ function openCodeModelEntry(model: BotProviderModel, kept: unknown): unknown {
             ...(output === undefined ? {} : { output }),
           },
         }),
-    ...(model.input === undefined
+    ...(model.input === undefined &&
+    asRecord(existing['modalities']) === undefined &&
+    asRecord(existing['capabilities']) === undefined
       ? {}
-      : { capabilities: { ...existingCapabilities, input: [...model.input] } }),
+      : {
+          // Native schema is `modalities`; keep a legacy `capabilities` read
+          // working by writing both when the file already uses it.
+          ...(asRecord(existing['modalities']) !== undefined ||
+          asRecord(existing['capabilities']) === undefined
+            ? {
+                modalities: {
+                  ...existingModalities,
+                  ...(model.input === undefined ? {} : { input: [...model.input] }),
+                },
+              }
+            : {}),
+          ...(asRecord(existing['capabilities']) !== undefined
+            ? {
+                capabilities: {
+                  ...existingCapabilities,
+                  ...(model.input === undefined ? {} : { input: [...model.input] }),
+                },
+              }
+            : {}),
+        }),
+    ...(model.reasoning === undefined && typeof existing['reasoning'] !== 'boolean'
+      ? {}
+      : {
+          reasoning:
+            model.reasoning ?? (existing['reasoning'] === true),
+        }),
+    ...(variants === undefined || variants.length === 0
+      ? {}
+      : { variants: variants.map((level) => ({ id: level })) }),
   };
 }
 

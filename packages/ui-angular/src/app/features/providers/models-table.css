@@ -1,0 +1,233 @@
+/*
+ * Shared per-model editor: inline-edit table with popup multi-selects.
+ * Mounted by Settings custom endpoints and bot-local providers alike.
+ */
+:host {
+  display: block;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 4px;
+  border: 1px solid var(--morse-border);
+  border-radius: 12px;
+  background: var(--morse-panel, var(--morse-bg));
+}
+
+.models-table {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+}
+
+.models-table thead th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--morse-border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--morse-fg-muted);
+  background: color-mix(in srgb, var(--morse-input-bg, var(--morse-bg)) 55%, transparent);
+}
+
+.models-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--morse-border);
+  vertical-align: middle;
+}
+
+.models-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.models-table input {
+  width: 100%;
+  min-width: 90px;
+  padding: 6px 8px;
+  border: 1px solid var(--morse-input-border, var(--morse-border));
+  border-radius: 7px;
+  outline: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--morse-input-fg, var(--morse-fg));
+  background: var(--morse-input-bg, var(--morse-bg));
+}
+
+.models-table input:focus {
+  border-color: var(--morse-accent, #7c5cff);
+}
+
+.models-table .col-caps {
+  width: 186px;
+}
+
+.models-table .col-think {
+  width: 150px;
+}
+
+.models-table .col-remove {
+  width: 44px;
+  text-align: right;
+}
+
+/* Row popups: the trigger sits in the cell, the panel hangs below it. */
+.menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--morse-input-border, var(--morse-border));
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--morse-fg);
+  background: var(--morse-input-bg, var(--morse-bg));
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.menu-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--morse-accent, #7c5cff) 40%, var(--morse-border));
+}
+
+.menu-trigger .caret {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--morse-fg-muted);
+}
+
+.menu-trigger .none {
+  color: var(--morse-fg-muted);
+}
+
+/* The thinking picker's brain marks reasoning, in the trigger and its row. */
+.menu-trigger svg.brain,
+.menu-row svg.brain {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--morse-accent, #7c5cff);
+}
+
+.menu-trigger .sep {
+  margin: 0 -4px;
+  color: var(--morse-fg-muted);
+}
+
+.menu-trigger .more {
+  font-size: 11px;
+  color: var(--morse-fg-muted);
+}
+
+.menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--morse-border);
+  border-radius: 10px;
+  background: var(--morse-panel, var(--morse-bg));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--morse-fg);
+  background: transparent;
+  cursor: pointer;
+}
+
+.menu-row:hover {
+  background: color-mix(in srgb, var(--morse-accent, #7c5cff) 12%, transparent);
+}
+
+.menu-row .check {
+  flex: none;
+  width: 14px;
+  font-size: 12px;
+  color: var(--morse-accent, #7c5cff);
+}
+
+.menu-row svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--morse-fg-muted);
+}
+
+.menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-reset {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--morse-border);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--morse-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.menu-reset:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--morse-accent, #7c5cff) 40%, var(--morse-border));
+  color: var(--morse-fg);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.model-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--morse-border);
+  border-radius: 7px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--morse-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.model-remove:hover {
+  border-color: #ff8f8f;
+  color: #ff8f8f;
+}

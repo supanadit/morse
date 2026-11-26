@@ -133,6 +133,13 @@ export interface BotEngineAdapter {
   /** Copies a login into one bot's isolated store, when the engine supports it. */
   importGoCredential?(botRoot: string): Promise<boolean>;
   /**
+   * Copies the machine's global engine configuration — stored credentials and
+   * custom providers — into one bot's isolated store, when the engine supports
+   * it. A snapshot: entries the bot already holds win, so a bot's own keys are
+   * never overwritten. Runs after the layout wrote the bot's own answers.
+   */
+  importGlobalConfig?(botRoot: string): Promise<boolean>;
+  /**
    * Where this engine keeps its configuration, what each file is called and what
    * goes in it. The whole engine-specific knowledge lives here: the service asks
    * the layout to write a bot's configuration and to read it back, and never
@@ -282,6 +289,9 @@ function toProviderConfig(provider: BotProviderRecord): BotProviderConfig {
       ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
       ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
       ...(model.input === undefined ? {} : { input: model.input }),
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+      ...(model.thinking === undefined ? {} : { thinking: model.thinking }),
+      ...(model.thinkingLevels === undefined ? {} : { thinkingLevels: model.thinkingLevels }),
     })),
   };
 }
@@ -300,6 +310,9 @@ function toProviderRecord(provider: BotProviderConfig): BotProviderRecord {
       ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
       ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
       ...(model.input === undefined ? {} : { input: model.input }),
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+      ...(model.thinking === undefined ? {} : { thinking: model.thinking }),
+      ...(model.thinkingLevels === undefined ? {} : { thinkingLevels: model.thinkingLevels }),
     })),
   };
 }
@@ -602,6 +615,7 @@ export class BotService {
       );
       writeBotIdentity(botRoot, record);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
+      await this.importGlobalConfig(adapter, botRoot, input.useGlobalConfig === true);
       await this.importGoAuth(adapter, botRoot, input.useGoAuth === true);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
@@ -759,6 +773,26 @@ export class BotService {
   }
 
   /**
+   * Snapshots the machine's global engine configuration into a bot that asked
+   * for it: stored keys and custom providers land in the bot's isolated store,
+   * and anything the bot already holds wins. The frontend never sees a secret —
+   * the copy happens here, on the host, on explicit request.
+   */
+  private async importGlobalConfig(
+    adapter: BotEngineAdapter,
+    botRoot: string,
+    requested: boolean,
+  ): Promise<void> {
+    if (!requested) {
+      return;
+    }
+    const imported = await adapter.importGlobalConfig?.(botRoot);
+    if (imported !== true && adapter.importGlobalConfig !== undefined) {
+      throw new Error('Could not copy this machine’s engine configuration into that bot.');
+    }
+  }
+
+  /**
    * Hands the bot's whole configuration to its engine's layout, which writes the
    * files that engine reads. Morse keeps no copy of what lands there.
    */
@@ -887,6 +921,7 @@ export class BotService {
     // No key collected in the form means "keep the engine's own": the layout
     // leaves its credential store untouched for an empty list.
     this.writeEngineConfig(botRoot, adapter, input, input.credentials ?? []);
+    await this.importGlobalConfig(adapter, botRoot, input.useGlobalConfig === true);
     this.registry.bots = this.registry.bots.map((candidate) =>
       candidate.username === bot.username ? updated : candidate,
     );

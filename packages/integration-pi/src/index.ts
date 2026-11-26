@@ -9,6 +9,7 @@ export {
   PI_INSTALL_HINT,
   botPiEnv,
   createBotPiFactory,
+  importPiGlobalConfig,
   writePiCredentials,
   writePiProviders,
 } from './bot-engine.js';

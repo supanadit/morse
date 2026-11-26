@@ -195,12 +195,12 @@ describe('openCodeBotLayout', () => {
     const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
       providers: Record<string, { models: Record<string, unknown> }>;
     };
-    // `capabilities.input` is the schema's field for what a model accepts; without
-    // it OpenCode treats a vision model as text-only.
+    // `modalities.input` is the native schema's field for what a model accepts;
+    // without it OpenCode treats a vision model as text-only.
     expect(file.providers['acme']?.models['acme-vision']).toEqual({
       name: 'Acme Vision',
       limit: { context: 200_000, output: 4096 },
-      capabilities: { input: ['text', 'image'] },
+      modalities: { input: ['text', 'image'] },
     });
   });
 
