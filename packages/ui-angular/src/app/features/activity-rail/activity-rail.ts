@@ -30,8 +30,13 @@ export class ActivityRail {
   private readonly auth = inject(AuthState);
 
   protected readonly leftPane = this.shell.leftPane;
-  /** Multi-user admins get the third entry: host settings, a cog, not a face. */
-  protected readonly settingsVisible = computed(() => this.morse.user()?.role === 'admin');
+  /**
+   * The third entry: host settings, a cog, not a face. Single-user hosts have
+   * no `user`, so they see it too; only a regular signed-in user must not.
+   */
+  protected readonly settingsVisible = computed(
+    () => this.morse.user() === null || this.morse.user()?.role === 'admin',
+  );
   protected readonly settingsOpen = computed(() => this.leftPane() === 'settings');
   /** The login user on multi-user hosts; absent everywhere else. */
   protected readonly currentUser = computed(() => this.morse.user());

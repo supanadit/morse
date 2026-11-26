@@ -71,9 +71,11 @@ describe('ActivityRail', () => {
     expect(entries(fixture).map((entry) => entry.getAttribute('aria-label'))).toEqual([
       'Sessions view',
       'Explorer view',
+      'Settings',
     ]);
     expect(entries(fixture).map((entry) => entry.getAttribute('aria-pressed'))).toEqual([
       'true',
+      'false',
       'false',
     ]);
   });
@@ -168,6 +170,14 @@ describe('ActivityRail', () => {
       member.nativeElement.querySelector('.card .role')?.textContent?.trim(),
     ).toBe('Member');
     expect(member.nativeElement.querySelectorAll('.card .row')).toHaveLength(1);
+  });
+
+  it('shows the settings cog on a single-user host (no signed-in user)', () => {
+    const fixture = render();
+    const cog = fixture.nativeElement.querySelector(
+      '.views .entry[aria-label="Settings"]',
+    );
+    expect(cog).not.toBeNull();
   });
 
   it('shows the settings menu from the cog without opening Members', () => {
