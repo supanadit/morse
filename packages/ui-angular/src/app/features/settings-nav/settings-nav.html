@@ -1,0 +1,19 @@
+<!--
+  The host's settings, as a menu: the face the rail's cog puts in front. Each
+  row is a settings page in the center column; Members is the first of them.
+-->
+<morse-pane class="settings" title="Settings">
+  <button
+    type="button"
+    class="row"
+    [class.active]="membersOpen()"
+    [attr.aria-current]="membersOpen() ? 'page' : null"
+    (click)="openMembers()"
+  >
+    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+      <use href="#morse-admin" />
+    </svg>
+    <span class="label">Members</span>
+    <span class="hint">Users who can sign in</span>
+  </button>
+</morse-pane>

@@ -56,6 +56,7 @@ import { QueueDrain } from '../services/queue-drain';
 import { ComposerSync } from '../services/composer-sync';
 import { EnterDirective } from '../ui/enter.directive';
 import { SessionNav } from '../features/session-nav/session-nav';
+import { SettingsNav } from '../features/settings-nav/settings-nav';
 import { BotNav } from '../features/bot-nav/bot-nav';
 import { BotChat } from '../features/bot-chat/bot-chat';
 import { BotWizard } from '../features/bot-wizard/bot-wizard';
@@ -97,6 +98,7 @@ interface SubagentEntry extends ChildSessionRef {
     Toolbar,
     StatusBar,
     SessionNav,
+    SettingsNav,
     BotNav,
     BotChat,
     BotWizard,
@@ -223,10 +225,14 @@ export class App {
     const capabilities = this.morse.capabilities();
     return capabilities?.hostKind === 'server' && capabilities.filePreview === true;
   });
-  /** The face the column shows: no files view means the list, whatever was stored. */
-  protected readonly leftPane = computed<LeftPane>(() =>
-    this.filesEnabled() ? this.shell.leftPane() : 'sessions',
-  );
+  /**
+   * The face the column shows: no files view means the list, whatever was
+   * stored — except settings, which needs no file preview to configure.
+   */
+  protected readonly leftPane = computed<LeftPane>(() => {
+    const pane = this.shell.leftPane();
+    return pane === 'files' && !this.filesEnabled() ? 'sessions' : pane;
+  });
   private readonly filesSeen = signal(false);
   /**
    * The Explorer mounts on the first Files selection and then stays mounted, hidden

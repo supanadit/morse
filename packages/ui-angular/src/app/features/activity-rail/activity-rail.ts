@@ -28,9 +28,9 @@ export class ActivityRail {
   private readonly auth = inject(AuthState);
 
   protected readonly leftPane = this.shell.leftPane;
-  /** Multi-user admins get the third entry: user management. */
-  protected readonly adminVisible = computed(() => this.morse.user()?.role === 'admin');
-  protected readonly adminOpen = this.shell.adminOpen;
+  /** Multi-user admins get the third entry: host settings, a cog, not a face. */
+  protected readonly settingsVisible = computed(() => this.morse.user()?.role === 'admin');
+  protected readonly settingsOpen = computed(() => this.leftPane() === 'settings');
   /** The login user on multi-user hosts; absent everywhere else. */
   protected readonly currentUser = computed(() => this.morse.user());
   /** The account card open under the rail's foot. */
@@ -53,6 +53,13 @@ export class ActivityRail {
     const wide = globalThis.matchMedia?.('(min-width: 760px)').matches ?? true;
     if (pane !== this.shell.leftPane()) {
       this.shell.setLeftPane(pane);
+      // The settings page belongs to its menu: opening the cog shows the
+      // Members page, leaving it for a list closes the page again.
+      if (pane === 'settings') {
+        this.shell.openAdmin();
+      } else {
+        this.shell.closeAdmin();
+      }
       if (wide) {
         this.layout.setVisible('left', true);
       } else {
@@ -67,10 +74,6 @@ export class ActivityRail {
     }
   }
 
-  protected toggleAdmin(): void {
-    this.shell.toggleAdmin();
-  }
-
   /** Opens the account card; the rail's foot, like the reference sidebar. */
   protected toggleMenu(): void {
     this.menuOpen.update((open) => !open);
@@ -83,8 +86,9 @@ export class ActivityRail {
   /** Admins jump to user management from their own card. */
   protected manageUsers(): void {
     this.closeMenu();
+    this.shell.setLeftPane('settings');
     if (!this.shell.adminOpen()) {
-      this.shell.toggleAdmin();
+      this.shell.openAdmin();
     }
   }
 

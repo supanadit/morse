@@ -159,4 +159,23 @@ describe('ActivityRail', () => {
     ).toBe('Member');
     expect(member.nativeElement.querySelectorAll('.card .row')).toHaveLength(1);
   });
+
+  it('opens host settings from the cog, and leaves them for a list', () => {
+    const fixture = renderAs('adit', 'admin');
+    const shell = TestBed.inject(ShellState);
+    const cog = fixture.nativeElement.querySelector(
+      '.views .entry[aria-label="Settings"]',
+    ) as HTMLButtonElement;
+    expect(cog).not.toBeNull();
+
+    cog.click();
+    fixture.detectChanges();
+    expect(shell.leftPane()).toBe('settings');
+    expect(shell.adminOpen()).toBe(true);
+
+    entries(fixture)[0].click();
+    fixture.detectChanges();
+    expect(shell.leftPane()).toBe('sessions');
+    expect(shell.adminOpen()).toBe(false);
+  });
 });

@@ -25,18 +25,23 @@
       <use href="#morse-folder" />
     </svg>
   </button>
-  @if (adminVisible()) {
+  @if (settingsVisible()) {
+    <!--
+      Host settings: a cog, because it is configuration, not a conversation.
+      The face it puts in front is a menu — Members today, more settings as
+      they grow — whose page takes the center while it is up.
+    -->
     <button
       type="button"
       class="entry"
-      [class.active]="adminOpen()"
-      [attr.aria-pressed]="adminOpen()"
-      aria-label="User management"
-      title="Users"
-      (click)="toggleAdmin()"
+      [class.active]="settingsOpen()"
+      [attr.aria-pressed]="settingsOpen()"
+      aria-label="Settings"
+      title="Settings"
+      (click)="select('settings')"
     >
       <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
-        <use href="#morse-admin" />
+        <use href="#morse-settings" />
       </svg>
     </button>
   }

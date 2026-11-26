@@ -115,6 +115,11 @@
       <circle cx="8" cy="5" r="2.6" />
       <path d="M2.6 13.8c.6-2.8 2.8-4.4 5.4-4.4s4.8 1.6 5.4 4.4" stroke-linecap="round" />
     </symbol>
+    <symbol id="morse-settings" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.6v2.2M8 12.2v2.2M1.6 8h2.2M12.2 8h2.2M3.5 3.5l1.6 1.6M10.9 10.9l1.6 1.6M12.5 3.5l-1.6 1.6M5.1 10.9l-1.6 1.6" />
+    </symbol>
   </svg>
 
   <!--
@@ -173,6 +178,12 @@
         @if (filesMounted()) {
           <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
         }
+        <!--
+          Host settings: the rail cog's menu — Members today, more settings
+          as they grow. Mounted like the Explorer (its choice is a settings
+          page in the center, and a swap away must not lose it).
+        -->
+        <morse-settings-nav class="left-view" [hidden]="leftPane() !== 'settings'" />
       }
     </div>
   }
@@ -354,8 +365,10 @@
       }
 
       @if (adminOpen()) {
-        <!-- User management for multi-user admins: the rail's third entry.
-             Like the bot column it takes the whole center while up. -->
+        <!--
+          The settings menu's Members page: user management for multi-user
+          admins. Like the bot column it takes the whole center while up.
+        -->
         <morse-admin-panel />
       } @else if (promptEditorOpen()) {
         <!-- Mounted on demand by the lazy import in `app.ts`, so the editor keeps

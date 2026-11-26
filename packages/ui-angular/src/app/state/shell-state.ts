@@ -22,10 +22,12 @@ const PROJECT_FILTER_KEY = 'morse.nav.projectFilter';
 export type RightPane = 'git' | 'search';
 
 /**
- * The views that share the shell's left column: the session list and the file
- * Explorer. Like the right column, one face at a time — the rail picks it.
+ * The views that share the shell's left column: the session list, the file
+ * Explorer, and host settings. Like the right column, one face at a time —
+ * the rail picks it. Settings is a menu first (members today, more tomorrow);
+ * its page takes the center while its face is in front.
  */
-export type LeftPane = 'sessions' | 'files';
+export type LeftPane = 'sessions' | 'files' | 'settings';
 
 function readRightPane(): RightPane {
   try {
@@ -45,7 +47,8 @@ function storeRightPane(pane: RightPane): void {
 
 function readLeftPane(): LeftPane {
   try {
-    return globalThis.localStorage?.getItem(LEFT_PANE_KEY) === 'files' ? 'files' : 'sessions';
+    const stored = globalThis.localStorage?.getItem(LEFT_PANE_KEY);
+    return stored === 'files' || stored === 'settings' ? stored : 'sessions';
   } catch {
     return 'sessions';
   }
@@ -145,8 +148,8 @@ export class ShellState {
 
   /**
    * Which face the left column shows. The column's open flag and width are the
-   * navigation's stored keys, so this only says whether the rail has the session
-   * list or the Explorer in front.
+   * navigation's stored keys, so this only says which of the three faces the
+   * rail has in front: the session list, the Explorer, or host settings.
    */
   private readonly leftPaneSignal = signal<LeftPane>(readLeftPane());
   readonly leftPane = this.leftPaneSignal.asReadonly();
@@ -254,7 +257,8 @@ export class ShellState {
   /**
    * User management (multi-user admins only). Like the MCP manager it takes
    * the whole center column while up; unlike the dialogs it is not modal, so
-   * `modalOpen` does not track it.
+   * `modalOpen` does not track it. It opens with the settings face and closes
+   * when the rail leaves it — the page belongs to the menu that lists it.
    */
   private readonly admin = signal(false);
   readonly adminOpen = this.admin.asReadonly();
@@ -392,18 +396,10 @@ export class ShellState {
     this.mcp.set(true);
   }
 
-  /** Opens user management (the activity rail's admin entry). */
+  /** Opens user management (the settings menu's Members entry). */
   openAdmin(): void {
     this.closePromptEditor();
     this.admin.set(true);
-  }
-
-  /** The rail's admin entry toggles the page closed when it is already in front. */
-  toggleAdmin(): void {
-    this.admin.update((open) => !open);
-    if (this.admin()) {
-      this.closePromptEditor();
-    }
   }
 
   closeAdmin(): void {
