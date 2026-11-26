@@ -546,20 +546,34 @@ export class BotWizard {
   );
 
   /**
-   * The bot-local providers, as an edit sends them: model fields only, around
-   * the key the engine already stores. Keys are never read back, so an edit
-   * carries no credential — a correction never costs the reader their key.
+   * The bot-local providers, as an edit sends them: model fields around the
+   * key the engine already stores. Keys are never read back, so an untouched
+   * form carries no credential — a correction never costs the reader their key
+   * — and a key typed in this form is sent, replacing the stored one.
    */
   protected readonly editedProviders = computed<BotProviderConfig[]>(() =>
     this.localProviders()
       .filter((draft) => draft.id.trim().length > 0 && draft.models.length > 0)
-      .map((draft) => ({
-        id: draft.id.trim(),
-        label: draft.label.trim() || draft.id.trim(),
-        api: draft.api,
-        ...(draft.baseUrl.trim().length > 0 ? { baseUrl: draft.baseUrl.trim() } : {}),
-        models: draft.models.map((model) => ({ ...model })),
-      })),
+      .map((draft) => {
+        const apiKey = draft.apiKey.trim();
+        const name = draft.envName.trim();
+        const credential =
+          draft.credentialKind === 'env'
+            ? name.length > 0
+              ? ({ kind: 'env', name } satisfies BotProviderCredentialInput)
+              : undefined
+            : apiKey.length > 0
+              ? ({ kind: 'stored', apiKey } satisfies BotProviderCredentialInput)
+              : undefined;
+        return {
+          id: draft.id.trim(),
+          label: draft.label.trim() || draft.id.trim(),
+          api: draft.api,
+          ...(draft.baseUrl.trim().length > 0 ? { baseUrl: draft.baseUrl.trim() } : {}),
+          ...(credential === undefined ? {} : { credential }),
+          models: draft.models.map((model) => ({ ...model })),
+        };
+      }),
   );
 
   protected readonly namedSubagents = computed<SubagentRow[]>(() =>

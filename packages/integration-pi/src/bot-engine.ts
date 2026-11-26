@@ -155,9 +155,11 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
 /**
  * Snapshots the machine's global pi configuration into one bot's isolated
  * store: every `auth.json` entry and every `models.json` provider the bot does
- * not already declare. The bot wins on conflict, so a key the wizard pasted
- * is never overwritten — and the copy is whole records, verbatim, because the
- * frontend never sees a secret to send back.
+ * not already declare, its `$NAME` references resolved to this machine's values
+ * so the copy stands on its own. The bot wins on conflict, so a key the wizard
+ * pasted is never overwritten — except an empty key, which is what a provider
+ * cloned from the catalog carries until this fills it. The copy is whole
+ * records, because the frontend never sees a secret to send back.
  *
  * Missing global files are nothing to copy, not a failure; a malformed one is
  * thrown, so a save says what it could not read instead of silently dropping
@@ -168,17 +170,53 @@ export function importPiGlobalConfig(botRoot: string): boolean {
   const botDir = join(botRoot, 'config');
   const globalAuth = readJsonObject(join(globalDir, AUTH_FILE)) ?? {};
   const botAuth = readJsonObject(join(botDir, AUTH_FILE)) ?? {};
-  writePrivateJson(join(botDir, AUTH_FILE), { ...globalAuth, ...botAuth });
+  writePrivateJson(join(botDir, AUTH_FILE), {
+    ...resolveEnvReferences(globalAuth, process.env),
+    ...botAuth,
+  });
 
   const globalProviders = asRecord(readJsonObject(join(globalDir, MODELS_FILE))?.['providers']) ?? {};
   const botModels = readJsonObject(join(botDir, MODELS_FILE)) ?? {};
   const botProviders = asRecord(botModels['providers']) ?? {};
   const merged: Record<string, unknown> = { ...botProviders };
   for (const [id, entry] of Object.entries(globalProviders)) {
-    if (merged[id] === undefined) {
-      merged[id] = entry;
+    const declared = merged[id];
+    const kept = asRecord(declared) ?? {};
+    if (declared !== undefined && kept['apiKey'] !== '') {
+      continue;
     }
+    const copy = resolveEnvReferences(entry, process.env);
+    merged[id] = declared === undefined ? copy : { ...kept, apiKey: asRecord(copy)?.['apiKey'] };
   }
   writePrivateJson(join(botDir, MODELS_FILE), { ...botModels, providers: merged });
   return true;
+}
+
+/**
+ * A copied entry with pi's `$NAME` / `${NAME}` references replaced by this
+ * machine's values. A name the machine does not hold stays a reference, for the
+ * bot's own pi to resolve.
+ */
+function resolveEnvReferences(
+  value: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+): Record<string, unknown>;
+function resolveEnvReferences(value: unknown, env: NodeJS.ProcessEnv): unknown;
+function resolveEnvReferences(value: unknown, env: NodeJS.ProcessEnv): unknown {
+  if (typeof value === 'string') {
+    // A second `$` is pi's literal dollar (`$$`), not a reference.
+    return value.replace(
+      /(?<!\$)\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+      (whole, braced: string | undefined, bare: string | undefined) =>
+        env[braced ?? bare ?? ''] ?? whole,
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveEnvReferences(item, env));
+  }
+  return typeof value === 'object' && value !== null
+    ? Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, resolveEnvReferences(item, env)]),
+      )
+    : value;
 }

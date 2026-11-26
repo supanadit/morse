@@ -1286,6 +1286,53 @@ describe('BotWizard', () => {
     expect(sent).not.toHaveProperty('credentials');
   });
 
+  it('sends a key typed for its own provider on an edit, replacing the stored one', async () => {
+    const { fixture, host, morse } = await render();
+    morse.bot.onRoster({ bots: [forge], conversations: [] });
+    morse.ui.wizardTarget.set('forge');
+    morse.ui.wizardOpen.set(true);
+    fixture.detectChanges();
+    morse.bot.onConfig({
+      username: 'forge',
+      name: 'Forge',
+      description: 'Keeps the forge hot',
+      engineKind: 'opencode',
+      model: claude,
+      persona: 'You are Forge.',
+      envVars: [],
+      providers: [
+        {
+          id: 'llm-eigen',
+          label: 'Eigen',
+          api: 'openai-completions',
+          baseUrl: 'https://llm.example/v1',
+          models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek flash' }],
+        },
+      ],
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const card = [...host.querySelectorAll('.provider-grid .card')].find((one) =>
+      one.textContent?.includes('Eigen'),
+    ) as HTMLElement;
+    card.click();
+    tick(fixture);
+    button(host, '.detail-actions .secondary').click();
+    tick(fixture);
+    fill(host, '.local-editor input[type="password"]', 'sk-typed');
+    button(host, '.editor-actions .primary').click();
+    tick(fixture);
+
+    const update = vi.spyOn(morse, 'updateBot');
+    button(host, '.board-foot .primary').click();
+    tick(fixture);
+
+    const sent = update.mock.calls[0]?.[0] as { providers?: { credential?: unknown }[] };
+    expect(sent.providers?.[0]?.credential).toEqual({ kind: 'stored', apiKey: 'sk-typed' });
+  });
+
   it('keeps the saved model selectable when the catalog lists nothing', async () => {
     const { fixture, host, morse, status } = await render();
     morse.bot.onRoster({ bots: [forge], conversations: [] });

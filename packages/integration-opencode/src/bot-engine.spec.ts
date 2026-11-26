@@ -113,7 +113,11 @@ const fs = require('node:fs');
 fs.appendFileSync(process.env.FAKE_OC_SPAWNS, 'spawn\\n');
 fs.writeFileSync(
   process.env.FAKE_OC_ENV_FILE,
-  JSON.stringify({ config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME }),
+  JSON.stringify({
+    config: process.env.XDG_CONFIG_HOME,
+    data: process.env.XDG_DATA_HOME,
+    botOnly: process.env.MORSE_TEST_BOT_ONLY,
+  }),
 );
 process.on('SIGTERM', () => {
   fs.writeFileSync(process.env.FAKE_OC_STOP_FILE, 'stopped');
@@ -726,6 +730,36 @@ describe('opencodeBotAdapterFactory', () => {
     }
   }, 20_000);
 
+  it('starts the server with the bot’s own environment under the XDG redirects', async () => {
+    const botRoot = tempRoot();
+    const fake = await startFakeServer();
+    process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
+    process.env['FAKE_OC_URL'] = fake.url;
+    process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
+    process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
+    process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
+    const factory = opencodeBotAdapterFactory(botRoot, silentLogger, {
+      ...process.env,
+      MORSE_TEST_BOT_ONLY: 'from-the-bot',
+      XDG_CONFIG_HOME: join(botRoot, 'the-readers-own'),
+    });
+    try {
+      const gateway = await factory.create({ workspace: WORKSPACE });
+      await gateway.dispose();
+      // A KEY=value the wizard gave the bot reaches the server its shells and
+      // plugins run in, and still cannot pull the bot out of its own roots.
+      expect(JSON.parse(readFileSync(join(botRoot, 'env.json'), 'utf8'))).toEqual({
+        config: join(botRoot, 'config'),
+        data: join(botRoot, 'sessions'),
+        botOnly: 'from-the-bot',
+      });
+    } finally {
+      await factory.dispose();
+      await fake.close();
+    }
+  }, 20_000);
+
   it('removes a session through the bot engine', async () => {
     const botRoot = tempRoot();
     const fake = await startFakeServer();
@@ -832,5 +866,71 @@ describe('importOpenCodeGlobalConfig', () => {
     process.env.XDG_DATA_HOME = tempRoot();
     mkdirSync(join(botRoot, 'sessions', 'opencode'), { recursive: true });
     await expect(importOpenCodeGlobalConfig(botRoot, silentLogger)).resolves.toBe(true);
+  });
+
+  it('resolves env-referenced keys, fills a clone’s empty key, keeps a typed one', async () => {
+    const xdgConfig = tempRoot();
+    const xdgData = tempRoot();
+    const botRoot = tempRoot();
+    process.env.XDG_CONFIG_HOME = xdgConfig;
+    process.env.XDG_DATA_HOME = xdgData;
+    previous['MORSE_TEST_ACME_KEY'] = process.env.MORSE_TEST_ACME_KEY;
+    process.env.MORSE_TEST_ACME_KEY = 'raw-acme';
+    mkdirSync(join(xdgConfig, 'opencode'), { recursive: true });
+    writeFileSync(
+      join(xdgConfig, 'opencode', 'opencode.json'),
+      JSON.stringify({
+        providers: {
+          acme: {
+            name: 'Acme AI',
+            options: {
+              baseURL: 'https://llm.acme.example/v1',
+              apiKey: '{env:MORSE_TEST_ACME_KEY}',
+            },
+            models: {},
+          },
+          missing: {
+            name: 'Missing',
+            settings: { apiKey: '{env:MORSE_TEST_UNSET_KEY}' },
+            models: {},
+          },
+          typed: { name: 'Typed', settings: { apiKey: '{env:MORSE_TEST_ACME_KEY}' }, models: {} },
+        },
+      }),
+    );
+    mkdirSync(join(botRoot, 'config', 'opencode'), { recursive: true });
+    // A provider picked from the global catalog: cloned into the bot without its key.
+    const clone = {
+      name: 'Acme AI',
+      package: '@ai-sdk/openai-compatible',
+      settings: { baseURL: 'https://llm.acme.example/v1', apiKey: '' },
+      models: { 'acme-chat': {} },
+    };
+    writeFileSync(
+      join(botRoot, 'config', 'opencode', 'opencode.json'),
+      JSON.stringify({
+        providers: { acme: clone, typed: { name: 'Typed', settings: { apiKey: 'bot-typed' } } },
+      }),
+    );
+
+    await importOpenCodeGlobalConfig(botRoot, silentLogger);
+
+    const written = (
+      readJson(join(botRoot, 'config', 'opencode', 'opencode.json')) as {
+        providers: Record<string, unknown>;
+      }
+    ).providers;
+    // The clone keeps its own shape and gains the machine's value.
+    expect(written['acme']).toEqual({
+      ...clone,
+      settings: { baseURL: 'https://llm.acme.example/v1', apiKey: 'raw-acme' },
+    });
+    // A name this machine lacks stays a reference; a typed key is never touched.
+    expect(written['missing']).toEqual({
+      name: 'Missing',
+      settings: { apiKey: '{env:MORSE_TEST_UNSET_KEY}' },
+      models: {},
+    });
+    expect(written['typed']).toEqual({ name: 'Typed', settings: { apiKey: 'bot-typed' } });
   });
 });

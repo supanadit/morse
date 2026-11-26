@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { AgentGatewayFactory } from '@morse/agent';
 import {
   AgentUnavailableError,
+  asRecord,
   writePrivateJson,
   type BotEngineCapabilities,
   type BotProviderRecord,
@@ -60,6 +61,12 @@ export interface BotOpenCodeEngineOptions {
   botRoot: string;
   /** The binary to spawn; defaults to `opencode` on `PATH`. */
   bin?: string;
+  /**
+   * The base environment: the host's, plus what `BotService` declared for this
+   * bot — its own KEY=value pairs and the `MORSE_BUS_*` files its bus plugin
+   * reads. Defaults to the host's own; the XDG redirects go on top either way.
+   */
+  env?: NodeJS.ProcessEnv;
   logger: MorseLogger;
 }
 
@@ -94,7 +101,7 @@ export function botOpenCodeEnv(
 export async function createBotOpenCodeEngine(
   options: BotOpenCodeEngineOptions,
 ): Promise<OpenCodeEngine> {
-  const env = botOpenCodeEnv(options.botRoot);
+  const env = botOpenCodeEnv(options.botRoot, options.env);
   let connection: OpenCodeConnection;
   try {
     connection = await connectOpenCode({
@@ -308,9 +315,11 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
 /**
  * Snapshots the machine's global OpenCode configuration into one bot's
  * isolated store: every `auth.json` entry and every custom provider the bot
- * does not already declare, copied verbatim. The bot wins on conflict, so a
- * key the wizard pasted is never overwritten — and the copy is whole records,
- * because the frontend never sees a secret to send back.
+ * does not already declare, its `{env:NAME}` references resolved to this
+ * machine's values so the copy stands on its own. The bot wins on conflict, so
+ * a key the wizard pasted is never overwritten — except an empty key, which is
+ * what a provider cloned from the catalog carries until this fills it. The copy
+ * is whole records, because the frontend never sees a secret to send back.
  *
  * The Go login comes along best-effort through the same import a checked
  * "use my login" box would run; no login is nothing to copy, not a failure.
@@ -356,14 +365,50 @@ export async function importOpenCodeGlobalConfig(
       ? { ...(botConfig[botBlockKey] as Record<string, unknown>) }
       : {};
   for (const [id, entry] of Object.entries(globalProviders)) {
-    if (botProviders[id] === undefined) {
-      botProviders[id] = entry;
+    const declared = botProviders[id];
+    const kept = asRecord(declared) ?? {};
+    const settings = asRecord(kept['settings']);
+    if (declared !== undefined && settings?.['apiKey'] !== '') {
+      continue;
     }
+    const copy = resolveEnvReferences(entry, process.env);
+    botProviders[id] =
+      declared === undefined
+        ? copy
+        : { ...kept, settings: { ...settings, apiKey: providerKey(copy) } };
   }
   writeConfigJson(botPath, { ...botConfig, [botBlockKey]: botProviders });
 
   await importOpenCodeGoCredential(botRoot, logger);
   return true;
+}
+
+/** A provider entry's key: in `settings`, or the older `options` block. */
+function providerKey(entry: unknown): unknown {
+  const record = asRecord(entry) ?? {};
+  return asRecord(record['settings'])?.['apiKey'] ?? asRecord(record['options'])?.['apiKey'];
+}
+
+/**
+ * A copied entry with its `{env:NAME}` references replaced by this machine's
+ * values. A name the machine does not hold stays a reference, for the bot's own
+ * server to resolve.
+ */
+function resolveEnvReferences(value: unknown, env: NodeJS.ProcessEnv): unknown {
+  if (typeof value === 'string') {
+    return value.replace(
+      /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g,
+      (whole, name: string) => env[name] ?? whole,
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveEnvReferences(item, env));
+  }
+  return typeof value === 'object' && value !== null
+    ? Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, resolveEnvReferences(item, env)]),
+      )
+    : value;
 }
 
 /**
@@ -405,6 +450,7 @@ function writeConfigJson(path: string, value: unknown): void {
 export function opencodeBotAdapterFactory(
   botRoot: string,
   logger: MorseLogger,
+  env?: NodeJS.ProcessEnv,
 ): AgentGatewayFactory & {
   dispose(): Promise<void>;
   removeSession(sessionId: string): Promise<void>;
@@ -420,7 +466,7 @@ export function opencodeBotAdapterFactory(
     if (engine !== undefined) {
       return Promise.resolve(engine);
     }
-    pending ??= createBotOpenCodeEngine({ botRoot, logger }).then(
+    pending ??= createBotOpenCodeEngine({ botRoot, logger, env }).then(
       (created) => {
         engine = created;
         return created;

@@ -245,6 +245,7 @@ describe('writePiCredentials', () => {
  */
 describe('importPiGlobalConfig', () => {
   let previousAgentDir: string | undefined;
+  let previousKey: string | undefined;
 
   function withGlobalDir(dir: string): void {
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -258,6 +259,12 @@ describe('importPiGlobalConfig', () => {
       process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     }
     previousAgentDir = undefined;
+    if (previousKey === undefined) {
+      delete process.env.MORSE_TEST_ACME_KEY;
+    } else {
+      process.env.MORSE_TEST_ACME_KEY = previousKey;
+    }
+    previousKey = undefined;
   });
 
   const readJson = (path: string): unknown =>
@@ -328,5 +335,65 @@ describe('importPiGlobalConfig', () => {
     mkdirSync(join(botRoot, 'config'), { recursive: true });
     expect(importPiGlobalConfig(botRoot)).toBe(true);
     expect(readJson(join(botRoot, 'config', 'auth.json'))).toEqual({});
+  });
+
+  it('resolves env-referenced keys, fills a clone’s empty key, keeps a typed one', () => {
+    const globalDir = tempRoot();
+    const botRoot = tempRoot();
+    withGlobalDir(globalDir);
+    previousKey = process.env.MORSE_TEST_ACME_KEY;
+    process.env.MORSE_TEST_ACME_KEY = 'raw-acme';
+    writeFileSync(
+      join(globalDir, 'auth.json'),
+      JSON.stringify({ anthropic: { type: 'api_key', key: '${MORSE_TEST_ACME_KEY}' } }),
+    );
+    writeFileSync(
+      join(globalDir, 'models.json'),
+      JSON.stringify({
+        providers: {
+          acme: {
+            name: 'Acme AI',
+            baseUrl: 'https://llm.acme.example/v1',
+            apiKey: '$MORSE_TEST_ACME_KEY',
+            models: [{ id: 'acme-chat' }],
+          },
+          missing: { name: 'Missing', apiKey: '$MORSE_TEST_UNSET_KEY', models: [] },
+          typed: { name: 'Typed', apiKey: '$MORSE_TEST_ACME_KEY', models: [] },
+        },
+      }),
+    );
+    mkdirSync(join(botRoot, 'config'), { recursive: true });
+    // A provider picked from the global catalog: cloned into the bot without its key.
+    const clone = {
+      name: 'Acme AI',
+      baseUrl: 'https://llm.acme.example/v1',
+      apiKey: '',
+      models: [{ id: 'acme-chat' }],
+    };
+    writeFileSync(
+      join(botRoot, 'config', 'models.json'),
+      JSON.stringify({
+        providers: { acme: clone, typed: { name: 'Typed', apiKey: 'bot-typed', models: [] } },
+      }),
+    );
+
+    expect(importPiGlobalConfig(botRoot)).toBe(true);
+
+    // pi templates auth.json keys the same way, so the copy carries the value.
+    expect(readJson(join(botRoot, 'config', 'auth.json'))).toEqual({
+      anthropic: { type: 'api_key', key: 'raw-acme' },
+    });
+    const providers = (
+      readJson(join(botRoot, 'config', 'models.json')) as { providers: Record<string, unknown> }
+    ).providers;
+    // The clone gains the machine's value; an unset name stays a reference; a
+    // typed key is never touched.
+    expect(providers['acme']).toEqual({ ...clone, apiKey: 'raw-acme' });
+    expect(providers['missing']).toEqual({
+      name: 'Missing',
+      apiKey: '$MORSE_TEST_UNSET_KEY',
+      models: [],
+    });
+    expect(providers['typed']).toEqual({ name: 'Typed', apiKey: 'bot-typed', models: [] });
   });
 });

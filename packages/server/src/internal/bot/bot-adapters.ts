@@ -42,9 +42,12 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
     opencode: {
       kind: 'opencode',
       capabilities: OPENCODE_BOT_CAPABILITIES,
-      // OpenCode's bot engine builds its own environment from the bot's config
-      // directory, so the host env is applied inside the adapter, not here.
-      createFactory: (botRoot) => opencodeBotAdapterFactory(botRoot, logger),
+      // `BotService` hands in the bot's environment — the host's, the variables
+      // the wizard declared, and the `MORSE_BUS_*` files its bus plugin reads.
+      // The adapter still puts the XDG redirects on top, so a bot never reads
+      // the reader's own engine; dropping the env would silently cost a bot
+      // every KEY=value it was given.
+      createFactory: (botRoot, env) => opencodeBotAdapterFactory(botRoot, logger, env),
       // A Go login lives in the user's OpenCode store, not in a field. The host
       // reads it when a probe or a save asks for Go; it never reaches a client.
       importGoCredential: (botRoot) => importOpenCodeGoCredential(botRoot, logger),

@@ -1554,6 +1554,28 @@ describe('BotChat', () => {
     expect(times[1]?.textContent?.trim()).toBe(clockTime(at + 60_000));
   });
 
+  it('shows no composer in a thread, and one again in a room', async () => {
+    const { fixture, host, morse } = await render();
+    const thread: BotConversationSummary = {
+      id: 'thread-forge-sable',
+      kind: 'thread',
+      title: 'Forge · Sable',
+      members: ['forge', 'sable'],
+      chainCap: 8,
+      updatedAt: 3,
+    };
+    morse.bot.onRoster({ bots: [forge, sable], conversations: [dm, thread] });
+    morse.bot.open(thread.id);
+    morse.bot.onTranscript({ conversationId: thread.id, entries: [], replace: true });
+    fixture.detectChanges();
+    // A thread is bots talking to each other: the reader watches, not types.
+    expect(host.querySelector('morse-chat-composer')).toBeNull();
+
+    open(morse, dm, []);
+    fixture.detectChanges();
+    expect(host.querySelector('morse-chat-composer')).not.toBeNull();
+  });
+
   it('says so when no conversation is open', async () => {
     const { host } = await render();
 

@@ -393,15 +393,20 @@
     <!-- The slab floats over the transcript, measured into `--morse-dock-height`
          so the last line is never behind the glass (same mechanism as code mode). -->
     <div class="composer-host" #dock>
-      <morse-chat-composer
-        [variant]="'bot'"
-        [placeholder]="'Message ' + conversation.title + '…'"
-        [botMembers]="mentionMembers()"
-        [botBroadcast]="canBroadcast()"
-        [botUsage]="usage()"
-        [botCompacting]="compacting()"
-        (botSend)="send($event)"
-      />
+      <!-- shortcut: a thread (bot to bot) shows no composer, on the assumption a
+           reader should only watch one; the send path is intact, so drop this
+           `@if` to let a reader talk in a thread again. -->
+      @if (conversation.kind !== 'thread') {
+        <morse-chat-composer
+          [variant]="'bot'"
+          [placeholder]="'Message ' + conversation.title + '…'"
+          [botMembers]="mentionMembers()"
+          [botBroadcast]="canBroadcast()"
+          [botUsage]="usage()"
+          [botCompacting]="compacting()"
+          (botSend)="send($event)"
+        />
+      }
     </div>
   </section>
 } @else {
