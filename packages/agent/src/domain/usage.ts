@@ -6,7 +6,7 @@
  * Shapes only — no I/O, no ports, no framework imports (R2/R8).
  */
 
-/** An image attached to a prompt: base64 payload plus its media type. */
+/** Media attached to a prompt: base64 payload plus its media type. */
 export interface PromptImage {
   /** Base64 data, without a `data:` URL prefix. */
   data: string;

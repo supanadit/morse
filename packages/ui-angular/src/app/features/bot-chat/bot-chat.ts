@@ -691,16 +691,35 @@ export class BotChat {
     }
   }
 
-  /** A sent image's `data:` URL, for the thumbnail in the reader's own bubble. */
+  /** A sent attachment's `data:` URL, for the thumbnail in the reader's own bubble. */
   protected preview(image: PromptImage): string {
     return `data:${image.mimeType};base64,${image.data}`;
   }
 
+  /** Image, video, audio or file — an `<img>` cannot paint video. */
+  protected mediaKind(mimeType: string): 'image' | 'video' | 'audio' | 'file' {
+    const normalized = mimeType.toLowerCase();
+    if (normalized.startsWith('image/')) {
+      return 'image';
+    }
+    if (normalized.startsWith('video/')) {
+      return 'video';
+    }
+    if (normalized.startsWith('audio/')) {
+      return 'audio';
+    }
+    return 'file';
+  }
+
   /** The thumbnail opened full-size, with the same overlay code mode shows. */
-  protected readonly shownImage = signal<{ src: string; label: string } | null>(null);
+  protected readonly shownImage = signal<{ src: string; label: string; kind: 'image' | 'video' | 'audio' | 'file' } | null>(null);
 
   protected openImage(image: PromptImage, index: number): void {
-    this.shownImage.set({ src: this.preview(image), label: `Image ${index + 1}` });
+    this.shownImage.set({
+      src: this.preview(image),
+      label: `Attachment ${index + 1}`,
+      kind: this.mediaKind(image.mimeType),
+    });
   }
 
   protected closeImage(): void {

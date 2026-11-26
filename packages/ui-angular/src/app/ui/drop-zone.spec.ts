@@ -145,7 +145,7 @@ describe('DropZone', () => {
     expect(attachments.images()).toHaveLength(1);
     expect(attachments.pins().map((pin) => pin.path)).toEqual(['src/app.ts']);
     expect(attachments.pins()[0]?.startLine).toBeUndefined();
-    expect(attachments.notice()?.text).toContain('1 image attached');
+    expect(attachments.notice()?.text).toContain('1 media file attached');
   });
 
   it('pins a path dragged from Morse’s own Explorer, once', async () => {

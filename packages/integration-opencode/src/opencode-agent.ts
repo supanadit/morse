@@ -403,9 +403,16 @@ export class OpenCodeAgent extends Session {
    * new/steer prompt is delivered into the session (`steer`) — OpenCode's own
    * names for the same two dispositions.
    *
-   * Images become files the server can read (`files: [{ uri }]`): the wire takes
-   * paths, not base64. An image that cannot be written is reported as a warning
-   * instead of being silently dropped.
+   * Attachments become files the server can read (`files: [{ uri }]`): the wire
+   * takes paths, not base64, for any media kind (image, video, audio, PDF). An
+   * attachment that cannot be written is reported as a warning instead of being
+   * silently dropped.
+   *
+   * Engine limitation, not Morse's: OpenCode's server rejects video/audio even
+   * for models that declare the modality ("Only images, PDFs, or text files can
+   * be attached here", anomalyco/opencode#21273, closed as not planned). Such
+   * files still ride along as workspace files the model can read with its
+   * tools, but native multimodal delivery is up to the engine.
    */
   async prompt(
     text: string,
@@ -1335,7 +1342,7 @@ export class OpenCodeAgent extends Session {
   }
 
   /**
-   * Writes base64 images where the server can read them and returns `file:` URIs.
+   * Writes base64 attachments where the server can read them and returns `file:` URIs.
    *
    * The files live for the session's lifetime (not just the request): a queued
    * follow-up reads its attachment when *it* runs, which can be after the prompt
@@ -1355,12 +1362,12 @@ export class OpenCodeAgent extends Session {
         this.imageFiles.push(path);
         files.push({ uri: pathToFileURL(path).href });
       } catch (error: unknown) {
-        this.log.warn('Could not materialize an image attachment for OpenCode', error);
+        this.log.warn('Could not materialize an attachment for OpenCode', error);
         this.emit({
           type: 'agent/notice',
           at: Date.now(),
           level: 'warn',
-          text: 'An image attachment could not be sent to OpenCode; it was omitted.',
+          text: 'An attachment could not be sent to OpenCode; it was omitted.',
         });
       }
     }

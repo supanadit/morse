@@ -180,19 +180,19 @@
       >
         +
       </button>
-      <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
+      <input #fileInput type="file" multiple hidden [accept]="fileAccept()" (change)="onFilesChosen($event)" />
       <span class="hint muted">
         @if (botMembers.length > 0) {
           &#64; to mention
           @if (botImages() === 'no') {
-            · attach a file · this bot’s model takes text only
+            · attach a file · this bot takes text only, media goes as a file
           } @else {
-            · attach an image or a file
+            · attach media or a file
           }
         } @else if (botImages() === 'no') {
-          attach a file · this bot’s model takes text only
+          attach a file · this bot takes text only, media goes as a file
         } @else {
-          attach an image or a file
+          attach media or a file
         }
       </span>
     </div>
@@ -210,7 +210,7 @@
     >
       +
     </button>
-    <input #fileInput type="file" multiple hidden (change)="onFilesChosen($event)" />
+    <input #fileInput type="file" multiple hidden [accept]="fileAccept()" (change)="onFilesChosen($event)" />
     @if (canUpload()) {
       <!--
            A phone's browser can neither paste a file into the prompt nor drop
@@ -372,7 +372,13 @@
           [morseEnterScale]="0.55"
           [morseEnterDuration]="320"
         >
-          <img [src]="preview(image)" [alt]="image.name" />
+          @if (mediaKind(image.mimeType) === 'image') {
+            <img [src]="preview(image)" [alt]="image.name" />
+          } @else if (mediaKind(image.mimeType) === 'video') {
+            <video [src]="preview(image)" preload="metadata" muted playsinline class="chip-video" aria-hidden="true"></video>
+          } @else {
+            <span class="pin-icon" aria-hidden="true">⧉</span>
+          }
           <span class="chip-name" [title]="image.name">{{ image.name }}</span>
           <button
             type="button"

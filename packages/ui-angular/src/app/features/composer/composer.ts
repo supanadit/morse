@@ -37,7 +37,7 @@ import {
   readPromptTemplate,
   substituteArgs,
 } from '@morse/ui-runtime';
-import { AttachmentStore, type PendingImage, type PendingPin } from '../../state/attachments';
+import { AttachmentStore, modalityForMime, type PendingImage, type PendingPin } from '../../state/attachments';
 import {
   BUILTIN_COMMANDS,
   builtinName,
@@ -259,6 +259,52 @@ export class ChatComposer {
     () => this.morse.capabilities()?.editorContext === true,
   );
   /**
+   * What a bot conversation in front can take inline.
+   *
+   * The set of modalities every member's model advertises: a modality is
+   * allowed when some member declares it, refused only when every member
+   * declared modalities and none of them includes it, and unknown otherwise.
+   * Unknown gets the benefit of the doubt, exactly like the model picker
+   * showing no badge rather than claiming text-only.
+   */
+  private readonly botMedia = computed<Record<'image' | 'video' | 'audio' | 'pdf', boolean | undefined>>(() => {
+    const empty = { image: undefined, video: undefined, audio: undefined, pdf: undefined } as Record<
+      'image' | 'video' | 'audio' | 'pdf',
+      boolean | undefined
+    >;
+    const roster = this.morse.bot.roster();
+    const conversationId = this.morse.bot.activeId();
+    if (roster === null || conversationId === null) {
+      return empty;
+    }
+    const conversation = roster.conversations.find((one) => one.id === conversationId);
+    if (conversation === undefined) {
+      return empty;
+    }
+    const members = roster.bots.filter((bot) => conversation.members.includes(bot.username));
+    if (members.length === 0) {
+      return empty;
+    }
+    const result = { ...empty };
+    for (const modality of ['image', 'video', 'audio', 'pdf'] as const) {
+      let declared = 0;
+      let allowed = false;
+      for (const member of members) {
+        const input = member.model?.input;
+        if (input === undefined) {
+          continue;
+        }
+        declared += 1;
+        if (input.includes(modality)) {
+          allowed = true;
+          break;
+        }
+      }
+      result[modality] = allowed ? true : declared === members.length ? false : undefined;
+    }
+    return result;
+  });
+  /**
    * What a bot conversation in front can take as an image.
    *
    * `'yes'` when a member's model advertises the `image` modality, `'no'` when
@@ -269,47 +315,35 @@ export class ChatComposer {
    * refuses a paste, and it says why.
    */
   protected readonly botImages = computed<'yes' | 'no' | 'unknown'>(() => {
-    const roster = this.morse.bot.roster();
-    const conversationId = this.morse.bot.activeId();
-    if (roster === null || conversationId === null) {
-      return 'unknown';
+    const media = this.botMedia();
+    if (media['image'] === true) {
+      return 'yes';
     }
-    const conversation = roster.conversations.find((one) => one.id === conversationId);
-    if (conversation === undefined) {
-      return 'unknown';
-    }
-    const members = roster.bots.filter((bot) => conversation.members.includes(bot.username));
-    if (members.length === 0) {
-      return 'unknown';
-    }
-    let declared = 0;
-    for (const member of members) {
-      const input = member.model?.input;
-      if (input === undefined) {
-        continue;
-      }
-      declared += 1;
-      if (input.includes('image')) {
-        return 'yes';
-      }
-    }
-    return declared === members.length ? 'no' : 'unknown';
+    return media['image'] === false ? 'no' : 'unknown';
   });
   /**
-   * Whether an image may join a bot line: allowed unless every member's model
-   * said, in its own words, that it takes no images. Refusing here — with the
-   * reason — beats letting the engine fail the whole turn.
+   * Whether media of one kind may join a bot line: allowed unless every
+   * member's model said, in its own words, that it takes no such modality.
+   * Refusing here — with the reason — beats letting the engine fail the turn.
+   * A refused modality still attaches as workspace bytes (warn but allow), so
+   * the bot can open it with its tools instead of failing the whole turn.
    */
-  private botAcceptsImages(): boolean {
-    const support = this.botImages();
-    if (support === 'no') {
-      this.attachments.say(
-        'warn',
-        'This bot’s model takes text only, so the image was not attached.',
-      );
-      return false;
+  private botInlineRefused(modality: 'image' | 'video' | 'audio' | 'pdf'): boolean {
+    return this.botMedia()[modality] === false;
+  }
+  private botAcceptsMedia(modality: 'image' | 'video' | 'audio' | 'pdf'): boolean {
+    if (this.botMedia()[modality] !== false) {
+      return true;
     }
-    return true;
+    const label = modality === 'image' ? 'image' : modality === 'pdf' ? 'PDF' : modality;
+    this.attachments.say(
+      'warn',
+      `This bot’s model takes text only, so the ${label} was attached as a file instead.`,
+    );
+    return false;
+  }
+  private botAcceptsImages(): boolean {
+    return this.botAcceptsMedia('image');
   }
 
   protected readonly thinkingLevel = computed(() => this.morse.state().thinkingLevel);
@@ -1337,30 +1371,105 @@ export class ChatComposer {
     this.attachments.setLivePreview(null);
   }
 
-  /** Pasted screenshots are the fastest way in, so treat them like a drop. */
+  /** Pasted media is the fastest way in, so treat it like a drop. */
   protected onPaste(event: ClipboardEvent): void {
-    const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-      file.type.startsWith('image/'),
+    const files = Array.from(event.clipboardData?.files ?? []).filter(
+      (file) => modalityForMime(file.type) !== undefined,
     );
     if (files.length === 0) {
       return;
     }
     // A bot's model is the gate, not the variant: a vision model takes a pasted
-    // screenshot the same way a code session does, and one that reported itself
-    // text-only is told so instead of failing later in the engine.
-    if (this.variant === 'bot' && !this.botAcceptsImages()) {
-      event.preventDefault();
-      return;
+    // screenshot the same way a code session does; warn-but-allow routes the
+    // refused kinds to workspace bytes instead of failing later in the engine.
+    if (this.variant === 'bot') {
+      for (const file of files) {
+        const modality = modalityForMime(file.type);
+        if (modality !== undefined) {
+          this.botAcceptsMedia(modality);
+        }
+      }
     }
     event.preventDefault();
-    void this.attachments.accept(files).then((report) => {
+    if (this.variant === 'bot') {
+      void this.importBotFiles(files);
+      return;
+    }
+    void this.importSessionPaste(files).then((report) => {
       if (report.attached > 0) {
-        this.attachments.say(
-          'info',
-          `${report.attached} pasted image${report.attached === 1 ? '' : 's'} attached`,
-        );
+        const noun = files.some((file) => !file.type.startsWith('image/'))
+          ? `pasted file${report.attached === 1 ? '' : 's'}`
+          : `pasted image${report.attached === 1 ? '' : 's'}`;
+        const note = files.some((file) => this.engineUnsupportedMedia(file.type))
+          ? ' · note: the engines don’t take video/audio natively yet — it rides as a file the model can open'
+          : '';
+        this.attachments.say('info', `${report.attached} ${noun} attached${note}`);
+      }
+      if (report.skipped.length > 0) {
+        this.attachments.say('warn', `could not attach ${report.skipped.join(', ')}`);
       }
     });
+  }
+
+  /** A session paste: inline media the model takes, uploads for the rest. */
+  private async importSessionPaste(files: readonly File[]): Promise<{ attached: number; skipped: string[] }> {
+    const inline = files.filter((file) => this.sessionAcceptsMedia(file.type));
+    const rest = files.filter((file) => !this.sessionAcceptsMedia(file.type));
+    const report = await this.attachments.accept(inline);
+    const uploaded = rest.length > 0 ? await this.uploads.upload([...rest]) : { added: [], failed: [] };
+    this.attachments.addMentions(uploaded.added.map((file) => file.path));
+    return { attached: report.attached + uploaded.added.length, skipped: [...report.skipped, ...uploaded.failed] };
+  }
+
+  /** Whether the session's current model takes this mime inline (unknown allows). */
+  private sessionAcceptsMedia(mimeType: string): boolean {
+    const modality = modalityForMime(mimeType);
+    if (modality === undefined) {
+      return false;
+    }
+    const input = this.currentModel()?.input;
+    if (input === undefined) {
+      return true;
+    }
+    return input.includes(modality);
+  }
+
+  /** The attachment chip's kind, so video/audio paints a player instead of `<img>`. */
+  protected mediaKind(mimeType: string): 'image' | 'video' | 'audio' | 'file' {
+    const modality = modalityForMime(mimeType);
+    return modality === 'image' || modality === 'video' || modality === 'audio' ? modality : 'file';
+  }
+
+  /** The file dialog's accept hint: what the current model can take inline. */
+  protected fileAccept(): string {
+    const input =
+      this.variant === 'bot' ? this.botInlineModalities() : this.currentModel()?.input;
+    if (input === undefined) {
+      return 'image/*,video/*,audio/*,application/pdf';
+    }
+    const parts: string[] = [];
+    if (input.includes('image')) {
+      parts.push('image/*');
+    }
+    if (input.includes('video')) {
+      parts.push('video/*');
+    }
+    if (input.includes('audio')) {
+      parts.push('audio/*');
+    }
+    if (input.includes('pdf')) {
+      parts.push('application/pdf');
+    }
+    return parts.length > 0 ? parts.join(',') : 'image/*,video/*,audio/*,application/pdf';
+  }
+
+  /** Modalities some bot member takes inline; unknown members allow everything. */
+  private botInlineModalities(): ModelOption['input'] | undefined {
+    const media = this.botMedia();
+    const allowed = (['image', 'video', 'audio', 'pdf'] as const).filter(
+      (modality) => media[modality] !== false,
+    );
+    return allowed as ModelOption['input'];
   }
 
   protected removeImage(id: string): void {
@@ -1485,7 +1594,7 @@ export class ChatComposer {
     this.workspace.ensureLoaded();
   }
 
-  /** Native file dialog result: images ride as attachments, the rest is uploaded. */
+  /** Native file dialog result: media rides as attachments, the rest is uploaded. */
   protected onFilesChosen(event: Event): void {
     const input = event.target as HTMLInputElement | null;
     const files = Array.from(input?.files ?? []);
@@ -1501,38 +1610,54 @@ export class ChatComposer {
       return;
     }
     void this.importFiles(
-      files.filter((file) => file.type.startsWith('image/')),
-      files.filter((file) => !file.type.startsWith('image/')),
+      files.filter((file) => this.sessionAcceptsMedia(file.type)),
+      files.filter((file) => !this.sessionAcceptsMedia(file.type)),
     );
   }
 
+  /** Media the engines cannot deliver natively yet: pi's RPC is image-only and
+   * OpenCode's server rejects video/audio (anomalyco/opencode#21273). It still
+   * rides along as a file the model can open — this note says so, so the engine
+   * limit is not read as a Morse limit. */
+  private engineUnsupportedMedia(mimeType: string): boolean {
+    const modality = modalityForMime(mimeType);
+    return modality === 'video' || modality === 'audio';
+  }
+
   /**
-   * Attaches what the reader chose for a bot: images become prompt images, and
-   * everything else waits as bytes — unless the model takes no images at all, in
-   * which case only the non-images are kept and the refusal is said out loud.
+   * Attaches what the reader chose for a bot: media the model takes goes inline,
+   * media it does not take waits as workspace bytes instead (warn but allow),
+   * and everything else waits as bytes too — so the bot can open any file once
+   * the host has put it on its disk.
    */
   private async importBotFiles(files: readonly File[]): Promise<void> {
-    const images = files.filter((file) => file.type.startsWith('image/'));
-    const others = files.filter((file) => !file.type.startsWith('image/'));
-    const accepted = images.length > 0 && !this.botAcceptsImages() ? others : files;
-    if (accepted.length === 0) {
-      return;
-    }
-    const report = await this.attachments.acceptFiles(accepted);
+    const refused = files.filter((file) => {
+      const modality = modalityForMime(file.type);
+      return modality !== undefined && this.botInlineRefused(modality);
+    });
+    const inline = files.filter(
+      (file) => !refused.includes(file) && modalityForMime(file.type) !== undefined,
+    );
+    const report = await this.attachments.acceptFiles(files, inline);
     const parts: string[] = [];
-    const attachedImages = accepted.filter((file) => file.type.startsWith('image/')).length;
-    const attachedFiles = report.attached - attachedImages;
-    if (attachedImages > 0) {
-      parts.push(`${attachedImages} image${attachedImages === 1 ? '' : 's'} attached`);
+    if (refused.length > 0) {
+      parts.push(`this bot’s model takes text only, so ${refused.length} media file${refused.length === 1 ? '' : 's'} attached as a file instead`);
     }
-    if (attachedFiles > 0) {
-      parts.push(`${attachedFiles} file${attachedFiles === 1 ? '' : 's'} attached`);
+    if (inline.length > 0) {
+      parts.push(`${inline.length} media file${inline.length === 1 ? '' : 's'} attached`);
+    }
+    const fallbackAttached = report.attached - inline.length - refused.length;
+    if (fallbackAttached > 0) {
+      parts.push(`${fallbackAttached} file${fallbackAttached === 1 ? '' : 's'} attached`);
     }
     if (report.skipped.length > 0) {
       parts.push(`could not attach ${report.skipped.join(', ')}`);
     }
+    if (files.some((file) => this.engineUnsupportedMedia(file.type))) {
+      parts.push('note: the engines don’t take video/audio natively yet — it rides as a file the model can open');
+    }
     if (parts.length > 0) {
-      this.attachments.say(report.skipped.length > 0 ? 'warn' : 'info', parts.join(' · '));
+      this.attachments.say(refused.length > 0 || report.skipped.length > 0 ? 'warn' : 'info', parts.join(' · '));
     }
   }
 
@@ -1549,7 +1674,7 @@ export class ChatComposer {
 
     const parts: string[] = [];
     if (report.attached > 0) {
-      parts.push(`${report.attached} image${report.attached === 1 ? '' : 's'} attached`);
+      parts.push(`${report.attached} media file${report.attached === 1 ? '' : 's'} attached`);
     }
     if (uploaded.added.length > 0) {
       parts.push(`${uploaded.added.length} file${uploaded.added.length === 1 ? '' : 's'} uploaded`);
@@ -1557,6 +1682,9 @@ export class ChatComposer {
     const failed = [...report.skipped, ...uploaded.failed];
     if (failed.length > 0) {
       parts.push(`could not attach ${failed.join(', ')}`);
+    }
+    if ([...images, ...others].some((file) => this.engineUnsupportedMedia(file.type))) {
+      parts.push('note: the engines don’t take video/audio natively yet — it rides as a file the model can open');
     }
     if (parts.length > 0) {
       const nothingWorked = report.attached === 0 && uploaded.added.length === 0;

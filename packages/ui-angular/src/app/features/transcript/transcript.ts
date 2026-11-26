@@ -39,7 +39,7 @@ import { NoteHoverDirective } from '../../ui/pin-annotation/note-hover.directive
 import { CopyButton } from '../../ui/copy-button/copy-button';
 import { MorseService } from '../../host/morse.service';
 
-/** Mime subtype -> file extension, for the chip label of a persisted image. */
+/** Mime subtype -> file extension, for the chip label of a persisted attachment. */
 const IMAGE_EXTENSIONS: Record<string, string> = {
   png: 'png',
   jpeg: 'jpg',
@@ -50,6 +50,21 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   bmp: 'bmp',
   avif: 'avif',
 };
+
+/** Image, video, audio or a generic file chip — an `<img>` cannot paint video. */
+function mediaKind(mimeType: string): 'image' | 'video' | 'audio' | 'file' {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.startsWith('image/')) {
+    return 'image';
+  }
+  if (normalized.startsWith('video/')) {
+    return 'video';
+  }
+  if (normalized.startsWith('audio/')) {
+    return 'audio';
+  }
+  return 'file';
+}
 
 /** One-line prompt preview for the navigator rail. */
 const PREVIEW_MAX_CHARS = 160;
@@ -90,7 +105,7 @@ export class ChatTranscript {
   );
 
   /** The image opened full-size from its chip, if any. */
-  protected readonly preview = signal<{ src: string; label: string } | null>(null);
+  protected readonly preview = signal<{ src: string; label: string; kind: 'image' | 'video' | 'audio' | 'file' } | null>(null);
   /** The user message being edited in place, if any. */
   protected readonly editingId = signal<string | null>(null);
   /** Draft of the inline editor for the message being edited. */
@@ -484,17 +499,28 @@ export class ChatTranscript {
   }
 
   /**
-   * A chip label for a persisted image. The wire only carries the base64 data
-   * and mime type (pi's own format), so the name is derived from the type.
+   * A chip label for a persisted attachment. The wire only carries the base64
+   * data and mime type (pi's own format), so the name is derived from the type.
    */
   protected imageName(image: PromptImage, index: number): string {
     const subtype = image.mimeType.split('/')[1]?.toLowerCase() ?? '';
-    const ext = IMAGE_EXTENSIONS[subtype] ?? (subtype.replace(/[^a-z0-9]/g, '') || 'png');
-    return index === 0 ? `image.${ext}` : `image-${index + 1}.${ext}`;
+    const ext = IMAGE_EXTENSIONS[subtype] ?? (subtype.replace(/[^a-z0-9]/g, '') || 'bin');
+    const stem = mediaKind(image.mimeType);
+    const base = stem === 'file' ? 'file' : stem;
+    return index === 0 ? `${base}.${ext}` : `${base}-${index + 1}.${ext}`;
+  }
+
+  /** The attachment's kind, so the template paints video/audio instead of `<img>`. */
+  protected mediaKind(mimeType: string): 'image' | 'video' | 'audio' | 'file' {
+    return mediaKind(mimeType);
   }
 
   protected openImage(image: PromptImage, index: number): void {
-    this.preview.set({ src: this.thumb(image), label: this.imageName(image, index) });
+    this.preview.set({
+      src: this.thumb(image),
+      label: this.imageName(image, index),
+      kind: mediaKind(image.mimeType),
+    });
   }
 
   protected closeImage(): void {

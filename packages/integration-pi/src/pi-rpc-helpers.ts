@@ -429,9 +429,16 @@ export function toNoticeLevel(value: string | undefined): NoticeLevel {
   }
   return 'info';
 }
-/** pi's prompt command takes images as content blocks. */
+/**
+ * pi's prompt command takes images as content blocks. pi resizes and forwards
+ * image/* only — video, audio and PDF attachments ride the files/workspace path
+ * instead, so non-images are filtered here rather than failing the turn.
+ * Engine limitation, not Morse's: pi's RPC has no video/audio block at all.
+ */
 export function toPiImages(
   images: PromptImage[],
 ): Array<{ type: 'image'; data: string; mimeType: string }> {
-  return images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }));
+  return images
+    .filter((image) => image.mimeType.toLowerCase().startsWith('image/'))
+    .map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }));
 }

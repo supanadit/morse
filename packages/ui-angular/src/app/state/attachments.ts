@@ -46,6 +46,37 @@ export interface PendingPin {
   note?: string;
 }
 
+/** Media the composer can attach inline, gated per model by its input modalities. */
+export const ATTACHABLE_MEDIA: readonly string[] = [
+  'image/',
+  'video/',
+  'audio/',
+  'application/pdf',
+];
+
+/** The model modality a file needs: image, video, audio or pdf, if attachable. */
+export function modalityForMime(mimeType: string): 'image' | 'video' | 'audio' | 'pdf' | undefined {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.startsWith('image/')) {
+    return 'image';
+  }
+  if (normalized.startsWith('video/')) {
+    return 'video';
+  }
+  if (normalized.startsWith('audio/')) {
+    return 'audio';
+  }
+  if (normalized === 'application/pdf') {
+    return 'pdf';
+  }
+  return undefined;
+}
+
+/** True for a file the composer can send inline (not just as a path mention). */
+export function isAttachableMedia(file: { type: string }): boolean {
+  return modalityForMime(file.type) !== undefined;
+}
+
 export interface AcceptReport {
   attached: number;
   /** Names of files that cannot travel with a prompt. */
@@ -208,13 +239,14 @@ export class AttachmentStore {
 
   /**
    * Reads files without storing them, so the caller can animate them in first and
-   * attach when they land.
+   * attach when they land. Image, video, audio and PDF files become inline media;
+   * anything else is skipped for the caller to route (upload or pin) instead.
    */
   async read(files: readonly File[]): Promise<{ images: PendingImage[]; skipped: string[] }> {
     const images: PendingImage[] = [];
     const skipped: string[] = [];
     for (const file of files) {
-      if (!file.type.startsWith('image/')) {
+      if (modalityForMime(file.type) === undefined) {
         skipped.push(file.name);
         continue;
       }
@@ -244,9 +276,9 @@ export class AttachmentStore {
   }
 
   /**
-   * Reads files from a drop or a paste and keeps them. Images are inlined; other
-   * files have no path in a browser, so they are reported as skipped instead of
-   * silently disappearing.
+   * Reads files from a drop or a paste and keeps them. Image, video, audio and
+   * PDF files are inlined; other files have no path in a browser, so they are
+   * reported as skipped instead of silently disappearing.
    */
   async accept(files: readonly File[]): Promise<AcceptReport> {
     const { images, skipped } = await this.read(files);
@@ -255,17 +287,21 @@ export class AttachmentStore {
   }
 
   /**
-   * The bot variant's counterpart to `accept`: an image becomes a prompt image,
-   * everything else waits as bytes for the host to write into the bot's
-   * workspace. Nothing is skipped for being the wrong kind, because a bot can
-   * open any file it is given once the host has put it on its disk.
+   * The bot variant's counterpart to `accept`: `inline` files become prompt
+   * attachments, everything else waits as bytes for the host to write into the
+   * bot's workspace. Nothing is skipped for being the wrong kind, because a bot
+   * can open any file it is given once the host has put it on its disk. Pass
+   * the model-gated split: refused media rides `files` (not `images`) so the
+   * engine still gets it via the workspace instead of dropping it.
    */
-  async acceptFiles(files: readonly File[]): Promise<AcceptReport> {
-    const { images, skipped } = await this.read(files);
+  async acceptFiles(files: readonly File[], inline?: readonly File[]): Promise<AcceptReport> {
+    const gated = inline ?? files.filter((file) => modalityForMime(file.type) !== undefined);
+    const allowed = new Set(gated);
+    const { images, skipped } = await this.read([...allowed]);
     const pending: PendingFile[] = [];
     const failed: string[] = [...skipped];
     for (const file of files) {
-      if (file.type.startsWith('image/')) {
+      if (allowed.has(file)) {
         continue;
       }
       const data = await readBase64(file);

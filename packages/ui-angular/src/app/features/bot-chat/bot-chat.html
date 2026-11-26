@@ -164,15 +164,21 @@
                         <button
                           type="button"
                           class="sent-image-button"
-                          [title]="'View image ' + ($index + 1)"
-                          [attr.aria-label]="'View image ' + ($index + 1)"
+                          [title]="'View attachment ' + ($index + 1)"
+                          [attr.aria-label]="'View attachment ' + ($index + 1)"
                           (click)="openImage(image, $index)"
                         >
-                          <img
-                            class="sent-image"
-                            [src]="preview(image)"
-                            alt="Image attached to this message"
-                          />
+                          @if (mediaKind(image.mimeType) === 'image') {
+                            <img
+                              class="sent-image"
+                              [src]="preview(image)"
+                              alt="Image attached to this message"
+                            />
+                          } @else if (mediaKind(image.mimeType) === 'video') {
+                            <video class="sent-image" [src]="preview(image)" preload="metadata"></video>
+                          } @else {
+                            <span class="sent-file" aria-hidden="true">⧉ {{ image.mimeType }}</span>
+                          }
                         </button>
                       }
                     </div>
@@ -413,7 +419,15 @@
       ×
     </button>
     <figure class="image-frame" (click)="$event.stopPropagation()">
-      <img [src]="shown.src" [alt]="shown.label" />
+      @if (shown.kind === 'video') {
+        <video [src]="shown.src" controls preload="metadata"></video>
+      } @else if (shown.kind === 'audio') {
+        <audio [src]="shown.src" controls></audio>
+      } @else if (shown.kind === 'image') {
+        <img [src]="shown.src" [alt]="shown.label" />
+      } @else {
+        <span class="media-label" aria-hidden="true">⧉</span>
+      }
       <figcaption>{{ shown.label }}</figcaption>
     </figure>
   </div>

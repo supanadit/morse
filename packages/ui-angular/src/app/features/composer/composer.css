@@ -536,6 +536,14 @@
   object-fit: cover;
   border-radius: var(--morse-radius-sm);
 }
+/* Video chips stay thumbnail-sized like images; playback lives in the overlay. */
+.chip video {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: var(--morse-radius-sm);
+  pointer-events: none;
+}
 .chip-name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -888,6 +888,16 @@
   border-radius: var(--morse-radius-md);
   background: var(--morse-panel);
 }
+/* The overlay player stays inside the frame like the full-size image does. */
+.image-frame video {
+  max-width: 100%;
+  max-height: calc(92vh - 40px);
+  border-radius: var(--morse-radius-md);
+  background: #000;
+}
+.image-frame audio {
+  width: min(420px, 80vw);
+}
 .image-frame figcaption {
   color: var(--morse-badge-fg, #fff);
   font-size: 11.5px;

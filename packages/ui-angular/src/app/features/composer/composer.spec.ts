@@ -207,7 +207,7 @@ function fakeFile(name: string, mimeType: string, body: 'img' | 'file' = 'img'):
  */
 function openConversation(
   fixture: ReturnType<typeof TestBed.createComponent<ChatComposer>>,
-  input: ('text' | 'image')[],
+  input: ('text' | 'image' | 'video' | 'audio' | 'pdf')[],
 ): void {
   const morse = TestBed.inject(MorseService);
   morse.bot.onRoster({
@@ -292,7 +292,7 @@ describe('ChatComposer bot variant', () => {
     const toolbar = host.querySelector('.toolbar') as HTMLElement;
     expect(toolbar).not.toBeNull();
     expect(toolbar.querySelectorAll('button')).toHaveLength(1);
-    expect(toolbar.textContent).toContain('attach an image or a file');
+    expect(toolbar.textContent).toContain('attach media or a file');
     // Nothing is attached yet, so no chip row either.
     expect(host.querySelector('.attachments')).toBeNull();
     // The editor itself stays: this is the one thing a bot message is typed in.
@@ -420,7 +420,7 @@ describe('ChatComposer bot variant', () => {
     expect(host.querySelector('.attachments')).toBeNull();
   });
 
-  it('refuses a pasted image for a model that reported text only, and says why', async () => {
+  it('attaches a pasted image as a file for a model that reported text only, and says why', async () => {
     const { fixture, host } = await mountComposer();
     fixture.componentRef.setInput('variant', 'bot');
     fixture.detectChanges();
@@ -431,14 +431,16 @@ describe('ChatComposer bot variant', () => {
       expect(TestBed.inject(AttachmentStore).notice()?.text).toContain('takes text only'),
     );
 
-    expect(host.querySelector('.attachments')).toBeNull();
-    // The refusal is said where every other attachment notice goes, not hidden.
-    expect(TestBed.inject(AttachmentStore).notice()?.text).toContain(
-      'This bot’s model takes text only',
+    // Warn but allow: the image rides workspace bytes instead of failing the turn.
+    await waitFor(fixture, () =>
+      expect(host.querySelector('.attachments .chip-name')?.textContent).toContain('shot.png'),
     );
-    // A file is still welcome: the refusal is about images, not attachments.
+    expect(TestBed.inject(AttachmentStore).notice()?.text).toContain(
+      'takes text only',
+    );
+    // A file is still welcome: the refusal is about inline media, not attachments.
     expect(host.querySelector('.toolbar')?.textContent).toContain(
-      'this bot’s model takes text only',
+      'media goes as a file',
     );
   });
 

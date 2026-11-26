@@ -20,9 +20,10 @@ export interface BaseTranscriptItem {
 }
 
 /**
- * An image attached to a prompt. Base64, without a `data:` prefix — pi accepts
- * it verbatim as `{type: 'image', data, mimeType}`. Stored on the user message
- * so the data survives in the chat, exactly like it does in pi sessions.
+ * Media attached to a prompt. Base64, without a `data:` prefix — pi accepts
+ * images verbatim as `{type: 'image', data, mimeType}`, OpenCode receives any
+ * media kind as a file URI. Stored on the user message so the data survives in
+ * the chat, exactly like it does in pi sessions.
  */
 export interface PromptImage {
   data: string;

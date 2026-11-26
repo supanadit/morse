@@ -59,7 +59,15 @@
                       [attr.aria-label]="'View ' + imageName(image, $index)"
                       (click)="openImage(image, $index)"
                     >
-                      <img [src]="thumb(image)" [alt]="imageName(image, $index)" />
+                      @if (mediaKind(image.mimeType) === 'image') {
+                        <img [src]="thumb(image)" [alt]="imageName(image, $index)" />
+                      } @else if (mediaKind(image.mimeType) === 'video') {
+                        <video [src]="thumb(image)" preload="metadata"></video>
+                      } @else if (mediaKind(image.mimeType) === 'audio') {
+                        <span class="media-label" aria-hidden="true">♪</span>
+                      } @else {
+                        <span class="media-label" aria-hidden="true">⧉</span>
+                      }
                     </button>
                   </li>
                 }
@@ -266,7 +274,15 @@
       ×
     </button>
     <figure class="image-frame" (click)="$event.stopPropagation()">
-      <img [src]="shown.src" [alt]="shown.label" />
+      @if (shown.kind === 'video') {
+        <video [src]="shown.src" controls preload="metadata"></video>
+      } @else if (shown.kind === 'audio') {
+        <audio [src]="shown.src" controls></audio>
+      } @else if (shown.kind === 'image') {
+        <img [src]="shown.src" [alt]="shown.label" />
+      } @else {
+        <span class="media-label" aria-hidden="true">⧉</span>
+      }
       <figcaption>{{ shown.label }}</figcaption>
     </figure>
   </div>

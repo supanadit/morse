@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { AttachmentStore } from '../state/attachments';
+import { AttachmentStore, isAttachableMedia } from '../state/attachments';
 import { DropFlight } from './drop-flight';
 import { Uploader } from '../services/uploads';
 
@@ -110,14 +110,12 @@ export class DropZone {
     const draggedPath = transfer.getData(WORKSPACE_PATH_DRAG_TYPE);
 
     const files = draggedPath ? [] : Array.from(transfer.files ?? []);
-    const { images } = await this.attachments.read(
-      files.filter((file) => file.type.startsWith('image/')),
-    );
+    const { images } = await this.attachments.read(files.filter((file) => isAttachableMedia(file)));
 
     // A VS Code drag arrives as a URI list or as a label, not as File objects
     // with paths, so every source is read.
     const entries: DropEntries = draggedPath ? { paths: [], names: [] } : parseDrop(transfer);
-    const nonImageFiles = files.filter((file) => !file.type.startsWith('image/'));
+    const nonImageFiles = files.filter((file) => !isAttachableMedia(file));
 
     // A browser cannot hand out a path, so a dropped File is uploaded to the
     // host (which owns the disk) and comes back as a pinned path. A host without
@@ -172,10 +170,19 @@ export class DropZone {
 
     const parts: string[] = [];
     if (images.length > 0) {
-      parts.push(`${images.length} image${images.length === 1 ? '' : 's'} attached`);
+      parts.push(`${images.length} media file${images.length === 1 ? '' : 's'} attached`);
     }
     if (droppedPaths.length > 0) {
       parts.push(`${droppedPaths.length} ${droppedPaths.length === 1 ? 'item' : 'items'} pinned to this message`);
+    }
+    if (
+      images.some(
+        (image) =>
+          image.mimeType.toLowerCase().startsWith('video/') ||
+          image.mimeType.toLowerCase().startsWith('audio/'),
+      )
+    ) {
+      parts.push('note: the engines don’t take video/audio natively yet — it rides as a file the model can open');
     }
     if (parts.length > 0) {
       this.attachments.say('info', parts.join(' · '));

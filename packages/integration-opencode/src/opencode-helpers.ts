@@ -300,9 +300,10 @@ function declaresArguments(body: string): boolean {
   return DECLARED_ARGUMENTS.test(body);
 }
 
-/** The file extension an uploaded image gets, from its media type. */
+/** The file extension an uploaded attachment gets, from its media type. */
 export function extensionOf(mimeType: string): string {
-  switch (mimeType.toLowerCase()) {
+  const normalized = mimeType.toLowerCase();
+  switch (normalized) {
     case 'image/png':
       return '.png';
     case 'image/jpeg':
@@ -312,7 +313,27 @@ export function extensionOf(mimeType: string): string {
       return '.webp';
     case 'image/gif':
       return '.gif';
+    case 'video/mp4':
+      return '.mp4';
+    case 'video/webm':
+      return '.webm';
+    case 'audio/mpeg':
+    case 'audio/mp3':
+      return '.mp3';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return '.wav';
+    case 'audio/ogg':
+      return '.ogg';
+    case 'application/pdf':
+      return '.pdf';
     default:
+      if (normalized.startsWith('video/')) {
+        return '.vid';
+      }
+      if (normalized.startsWith('audio/')) {
+        return '.aud';
+      }
       return '.img';
   }
 }
