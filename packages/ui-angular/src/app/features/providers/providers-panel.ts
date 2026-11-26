@@ -153,8 +153,12 @@ export class ProvidersPanel {
         this.morse.refreshModels();
       }
     });
-    this.morse.onProvidersChanged(() => {
-      void this.refresh();
+    this.morse.onProvidersChanged((event) => {
+      // The message names the engine whose files changed; only re-read that
+      // grid. A stale detail would otherwise keep showing "Connected".
+      if (event.engine.length === 0 || event.engine === this.engine()) {
+        void this.refresh();
+      }
       this.morse.refreshModels();
     });
   }
@@ -163,8 +167,19 @@ export class ProvidersPanel {
     this.loading.set(true);
     this.error.set(null);
     try {
-      const answer = await this.morse.requestHostCommand('providerStatus', { engine: this.engine() });
-      this.status.set(asProviderStatus(answer) ?? { engine: this.engine(), providers: [], issues: [] });
+      const engine = this.engine();
+      const answer = await this.morse.requestHostCommand('providerStatus', { engine });
+      if (this.engine() !== engine) {
+        return; // The reader switched engines while the host answered.
+      }
+      this.status.set(asProviderStatus(answer) ?? { engine, providers: [], issues: [] });
+      // A detail page holds a copy of the old provider; replace it with the
+      // freshly read one so disconnect/connect shows up immediately on Back.
+      const current = this.selected();
+      if (current !== undefined) {
+        const fresh = this.status()!.providers.find((one) => one.id === current.id);
+        this.selected.set(fresh === undefined ? undefined : fresh);
+      }
       const issues = this.status()?.issues ?? [];
       if (issues.length > 0) {
         this.error.set(issues.map((one) => one.message).join('\n'));
