@@ -177,7 +177,7 @@
         <p class="hint">Discovery reads the endpoint's <code>/models</code> listing. Blank limits leave {{ engine() }}'s own default; corrections here always win.</p>
 
         @for (model of models(); track $index) {
-          <div class="model-card">
+          <div class="model-card" [attr.data-model]="model.id || $index">
             <div class="model-head">
               <label class="field model-id">
                 <span>Model ID</span>
@@ -187,7 +187,7 @@
                 <span>Display name</span>
                 <input [value]="model.name" placeholder="GPT-5" (input)="setModel($index, 'name', $any($event.target).value)" />
               </label>
-              <button type="button" class="icon danger" aria-label="Remove model" title="Remove model" (click)="removeModel($index)">×</button>
+              <button type="button" class="model-remove" aria-label="Remove model" title="Remove model" (click)="removeModel($index)">×</button>
             </div>
 
             <div class="model-limits">

@@ -137,6 +137,26 @@ describe('ProvidersPanel', () => {
     );
   });
 
+  it('toggles capabilities for one model without changing the others', async () => {
+    const { fixture, host } = await render();
+    (host.querySelector('button.card.custom') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const panel = fixture.componentInstance as unknown as {
+      models: { update(fn: (list: unknown[]) => unknown[]): void };
+      toggleInput(index: number, input: string): void;
+      hasInput(index: number, input: string): boolean;
+    };
+    panel.models.update(() => [
+      { id: 'a', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
+      { id: 'b', name: '', context: '', output: '', input: new Set(['text']), reasoning: false, thinking: new Set() },
+    ]);
+    fixture.detectChanges();
+
+    panel.toggleInput(0, 'image');
+    expect(panel.hasInput(0, 'image')).toBe(true);
+    expect(panel.hasInput(1, 'image')).toBe(false);
+  });
+
   it('opens a custom provider in the full model editor, not the key form', async () => {
     const { fixture, host } = await render();
     await openCard(fixture, host, 'My gateway');

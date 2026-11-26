@@ -289,7 +289,12 @@ export class ProvidersPanel {
   /** Update one editable field of a model row. */
   protected setModel(index: number, field: string, value: string | boolean): void {
     this.models.update((list) =>
-      list.map((row, at) => (at === index ? ({ ...row, [field]: value } as ModelRow) : row)),
+      list.map((row, at) => ({
+        ...row,
+        input: new Set(row.input),
+        thinking: new Set(row.thinking),
+        ...(at === index ? { [field]: value } : {}),
+      }) as ModelRow),
     );
   }
 
@@ -342,7 +347,7 @@ export class ProvidersPanel {
     this.models.update((list) =>
       list.map((row, at) => {
         if (at !== index) {
-          return row;
+          return { ...row, input: new Set(row.input), thinking: new Set(row.thinking) };
         }
         const next = new Set(row.input);
         if (next.has(input)) {
@@ -350,7 +355,7 @@ export class ProvidersPanel {
         } else {
           next.add(input);
         }
-        return { ...row, input: next };
+        return { ...row, input: next, thinking: new Set(row.thinking) };
       }),
     );
   }
@@ -363,7 +368,7 @@ export class ProvidersPanel {
     this.models.update((list) =>
       list.map((row, at) => {
         if (at !== index) {
-          return row;
+          return { ...row, input: new Set(row.input), thinking: new Set(row.thinking) };
         }
         const next = new Set(row.thinking);
         if (next.has(level)) {
@@ -371,7 +376,7 @@ export class ProvidersPanel {
         } else {
           next.add(level);
         }
-        return { ...row, thinking: next };
+        return { ...row, input: new Set(row.input), thinking: next };
       }),
     );
   }

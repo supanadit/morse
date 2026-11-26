@@ -324,7 +324,7 @@ button.card:hover {
 
 .model-head {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr 34px;
   align-items: end;
   gap: 10px;
 }
@@ -344,31 +344,31 @@ button.card:hover {
   margin-bottom: 0;
 }
 
-.icon {
+.model-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 1px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 1px solid var(--morse-border);
   border-radius: 8px;
-  font-size: 17px;
+  font-size: 19px;
   line-height: 1;
   color: var(--morse-fg-muted);
   background: transparent;
   cursor: pointer;
 }
 
-.icon.danger:hover {
+.model-remove:hover {
   border-color: #ff8f8f;
   color: #ff8f8f;
 }
 
 .cap-line {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
   gap: 12px;
   margin-top: 14px;
   padding-top: 12px;
@@ -376,10 +376,7 @@ button.card:hover {
 }
 
 .cap-label {
-  flex: none;
-  width: 110px;
-  padding-top: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--morse-fg-muted);
 }
@@ -387,18 +384,22 @@ button.card:hover {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 5px 10px;
+  min-height: 30px;
+  padding: 5px 13px;
   border: 1px solid var(--morse-border);
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   color: var(--morse-fg-muted);
   background: var(--morse-input-bg, var(--morse-bg));
   cursor: pointer;
