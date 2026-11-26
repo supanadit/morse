@@ -3,6 +3,7 @@
   row is a settings page in the center column; Members is the first of them.
 -->
 <morse-pane class="settings" title="Settings">
+  @if (multiuser()) {
   <button
     type="button"
     class="row"
@@ -16,6 +17,7 @@
     <span class="label">Members</span>
     <span class="hint">Users who can sign in</span>
   </button>
+  }
   <button
     type="button"
     class="row"

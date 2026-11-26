@@ -189,7 +189,11 @@
           previous admin login must not see the menu or its pages.
         -->
         @if (settingsAllowed()) {
-          <morse-settings-nav class="left-view" [hidden]="leftPane() !== 'settings'" />
+          <morse-settings-nav
+            class="left-view"
+            [multiuser]="auth.status()?.multiuser ?? false"
+            [hidden]="leftPane() !== 'settings'"
+          />
         }
       }
     </div>

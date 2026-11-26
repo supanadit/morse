@@ -148,7 +148,7 @@ export class App {
    * the default `false` is the standalone app.
    */
   readonly embedded = input(false);
-  private readonly auth = inject(AuthState);
+  protected readonly auth = inject(AuthState);
   private readonly modePrefs = inject(ModePrefs);
   /**
    * The shell steps aside for login while the host has no user for this
@@ -183,6 +183,13 @@ export class App {
       return undefined;
     }
     const tab = this.tabs.activeTab();
+    if (
+      tab?.kind === 'settings' &&
+      tab.page === 'members' &&
+      this.auth.status()?.multiuser !== true
+    ) {
+      return undefined; // Single-user hosts have no Members page.
+    }
     return tab?.kind === 'settings' ? tab.page : undefined;
   });
   /** Bot mode's panes: one chat per open room, one editor per open form. */

@@ -7,9 +7,11 @@ import {
 } from '../../state/workspace-tabs';
 import { SettingsNav } from './settings-nav';
 
-function render(): ComponentFixture<SettingsNav> {
+function render(multiuser = true): ComponentFixture<SettingsNav> {
+  TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [SettingsNav] });
   const fixture = TestBed.createComponent(SettingsNav);
+  fixture.componentRef.setInput('multiuser', multiuser);
   fixture.detectChanges();
   return fixture;
 }
@@ -46,5 +48,12 @@ describe('SettingsNav', () => {
     fixture.detectChanges();
     expect(tabs.activeId()).toBe(SETTINGS_PROVIDERS_TAB_ID);
     expect(rows[1]!.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('hides Members on a single-user host, leaving Providers', () => {
+    const fixture = render(false);
+    const rows = [...fixture.nativeElement.querySelectorAll('.row')] as HTMLButtonElement[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toContain('Providers');
   });
 });

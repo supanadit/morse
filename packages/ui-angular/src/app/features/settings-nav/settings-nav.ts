@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import {
   WorkspaceTabs,
   SETTINGS_MEMBERS_TAB_ID,
@@ -20,6 +20,8 @@ import { Pane } from '../../ui/pane/pane';
 })
 export class SettingsNav {
   private readonly tabs = inject(WorkspaceTabs);
+  /** Single-user hosts have no accounts to manage; only Providers applies. */
+  readonly multiuser = input(false);
 
   /** The Members page is the tab in front. */
   protected readonly membersOpen = computed(
