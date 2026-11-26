@@ -16,44 +16,63 @@ function render(multiuser = true): ComponentFixture<SettingsNav> {
   return fixture;
 }
 
+function labels(fixture: ComponentFixture<SettingsNav>): string[] {
+  return [...fixture.nativeElement.querySelectorAll('morse-tree .row .label')].map(
+    (row) => row.textContent?.trim() ?? '',
+  );
+}
+
+function clickRow(fixture: ComponentFixture<SettingsNav>, label: string): void {
+  const rows = [...fixture.nativeElement.querySelectorAll(
+    'morse-tree .row',
+  )] as HTMLButtonElement[];
+  const row = rows.find((candidate) =>
+    candidate.querySelector('.label')?.textContent?.includes(label),
+  );
+  expect(row, `settings row "${label}"`).toBeDefined();
+  row!.click();
+  fixture.detectChanges();
+}
+
 describe('SettingsNav', () => {
-  it('lists Members, opening its page on click', () => {
+  it('lists Management/Members and Engine/Providers as collapsible sections', () => {
+    const fixture = render();
+    expect(labels(fixture)).toEqual(['Management', 'Members', 'Engine', 'Providers']);
+  });
+
+  it('opens the Members page on leaf click', () => {
     const fixture = render();
     const tabs = TestBed.inject(WorkspaceTabs);
 
-    const row = fixture.nativeElement.querySelector('.row') as HTMLButtonElement;
-    expect(row.textContent).toContain('Members');
-    expect(row.getAttribute('aria-current')).toBeNull();
-
-    row.click();
-    fixture.detectChanges();
+    clickRow(fixture, 'Members');
     expect(tabs.activeId()).toBe(SETTINGS_MEMBERS_TAB_ID);
-    expect(
-      (fixture.nativeElement.querySelector('.row') as HTMLButtonElement).getAttribute(
-        'aria-current',
-      ),
-    ).toBe('page');
   });
 
-  it('lists Providers directly below Members, opening its page on click', () => {
+  it('opens the Providers page on leaf click', () => {
     const fixture = render();
     const tabs = TestBed.inject(WorkspaceTabs);
-    const rows = [...fixture.nativeElement.querySelectorAll('.row')] as HTMLButtonElement[];
-    expect(rows.map((row) => row.textContent?.trim())).toEqual([
-      expect.stringContaining('Members'),
-      expect.stringContaining('Providers'),
-    ]);
 
-    rows[1]!.click();
-    fixture.detectChanges();
+    clickRow(fixture, 'Providers');
     expect(tabs.activeId()).toBe(SETTINGS_PROVIDERS_TAB_ID);
-    expect(rows[1]!.getAttribute('aria-current')).toBe('page');
   });
 
-  it('hides Members on a single-user host, leaving Providers', () => {
+  it('keeps Providers under its Engine section on a single-user host', () => {
     const fixture = render(false);
-    const rows = [...fixture.nativeElement.querySelectorAll('.row')] as HTMLButtonElement[];
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.textContent).toContain('Providers');
+    expect(labels(fixture)).toEqual(['Engine', 'Providers']);
+  });
+
+  it('folds a section from its caret without opening a page', () => {
+    const fixture = render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+    const before = tabs.activeId();
+
+    const chevron = fixture.nativeElement.querySelector(
+      'morse-tree .line .chevron',
+    ) as HTMLButtonElement;
+    chevron.click();
+    fixture.detectChanges();
+
+    expect(labels(fixture)).toEqual(['Management', 'Engine', 'Providers']);
+    expect(tabs.activeId()).toBe(before);
   });
 });

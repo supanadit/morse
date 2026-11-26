@@ -7,48 +7,17 @@
   border-right: 1px solid var(--morse-border);
 }
 
-/* One row per settings page: the glyph, the name, and what it holds. */
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--morse-radius-sm);
-  background: transparent;
-  color: var(--morse-fg);
-  font: inherit;
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-}
-.row:hover {
-  background: var(--morse-hover);
-}
-.row.active {
-  background: var(--morse-active);
-}
-.row .glyph {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.label {
-  flex: none;
-}
-.hint {
+/* The pane takes the room the column gives it, with the pane's own default
+   title — the same uppercase bar the Explorer draws, not Sessions' override. */
+morse-pane.settings {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  font-size: 11px;
-  color: var(--morse-fg-muted);
+  min-height: 0;
+}
+
+/* The tree is the one scrolling region, under the pane's title bar. */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 6px 10px;
 }

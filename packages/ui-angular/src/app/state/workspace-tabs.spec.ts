@@ -540,6 +540,31 @@ describe('WorkspaceTabs', () => {
     expect(queue.forOwner(draftId)).toEqual([]);
   });
 
+  it('treats a settings tab like any other editor-row tab in its menu', () => {
+    const { tabs } = setup();
+    tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });
+    tabs.openSettingsPage();
+    tabs.openProvidersPage();
+    const members = tabs.tabs().find((tab) => tab.kind === 'settings' && tab.page === 'members')!;
+    const providers = tabs
+      .tabs()
+      .find((tab) => tab.kind === 'settings' && tab.page === 'providers')!;
+
+    expect(tabs.canCloseOthers(members.id)).toBe(true);
+    expect(tabs.canCloseToTheRight(members.id)).toBe(true);
+
+    tabs.closeOthers(members.id);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', members.id]);
+    expect(tabs.activeId()).toBe(members.id);
+
+    tabs.openProvidersPage();
+    tabs.closeToTheRight(members.id);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1', members.id]);
+
+    tabs.closeAll(members.id);
+    expect(tabs.tabs().map((tab) => tab.id)).toEqual(['s1']);
+  });
+
   it('empties the strip and the host with closeAll', () => {
     const { tabs, fake } = setup();
     tabs.focusSession({ id: 's1', title: 'One', cwd: '/repo' });

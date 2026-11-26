@@ -1,34 +1,17 @@
 <!--
-  The host's settings, as a menu: the face the rail's cog puts in front. Each
-  row is a settings page in the center column; Members is the first of them.
+  The host's settings, drawn with the session list's own pane + tree: each
+  section folds like a project, each page is a leaf under it. A new page is a
+  leaf here, a subsection a nested group — no new component either way.
 -->
 <morse-pane class="settings" title="Settings">
-  @if (multiuser()) {
-  <button
-    type="button"
-    class="row"
-    [class.active]="membersOpen()"
-    [attr.aria-current]="membersOpen() ? 'page' : null"
-    (click)="openMembers()"
-  >
-    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-      <use href="#morse-admin" />
-    </svg>
-    <span class="label">Members</span>
-    <span class="hint">Users who can sign in</span>
-  </button>
-  }
-  <button
-    type="button"
-    class="row"
-    [class.active]="providersOpen()"
-    [attr.aria-current]="providersOpen() ? 'page' : null"
-    (click)="openProviders()"
-  >
-    <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
-      <use href="#morse-plug" />
-    </svg>
-    <span class="label">Providers</span>
-    <span class="hint">Models and API keys</span>
-  </button>
+  <div class="list">
+    <morse-tree
+      [nodes]="treeNodes()"
+      [expanded]="expanded()"
+      [selected]="selected()"
+      empty="Nothing to show."
+      (activate)="onActivate($event)"
+      (toggle)="onToggle($event)"
+    />
+  </div>
 </morse-pane>

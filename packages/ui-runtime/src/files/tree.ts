@@ -102,7 +102,10 @@ export type IconKind =
   | 'sql'
   | 'lock'
   | 'git'
-  | 'tag';
+  | 'tag'
+  | 'admin'
+  | 'plug'
+  | 'settings';
 
 /**
  * Every kind, as a list. Keyed by the type, so a new kind that is not named here is a
@@ -125,6 +128,9 @@ const ICON_SYMBOL: Record<IconKind, true> = {
   lock: true,
   git: true,
   tag: true,
+  admin: true,
+  plug: true,
+  settings: true,
 };
 
 export const ICON_KINDS = Object.keys(ICON_SYMBOL) as readonly IconKind[];

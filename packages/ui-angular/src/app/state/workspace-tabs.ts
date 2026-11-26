@@ -1081,13 +1081,14 @@ export class WorkspaceTabs {
           tab.sessionId === target.sessionId,
       );
     }
-    // A non-session tab's scope is its own row: editor pages, bot tabs and
-    // standalone files. Sessions keep their own, larger scope. Never reach into
-    // the other mode's tabs, even when both sets are in the store.
+    // A non-session tab's scope is its own row: editor pages (settings, MCP),
+    // bot tabs and standalone files. Sessions keep their own, larger scope.
+    // Never reach into the other mode's tabs, even when both sets are in the store.
     return this.items().filter(
       (tab) =>
         visible(tab) &&
-        (tab.kind === 'mcp' ||
+        (tab.kind === 'settings' ||
+          tab.kind === 'mcp' ||
           tab.kind === 'bot' ||
           tab.kind === 'bot-editor' ||
           (tab.kind === 'file' && tab.mention !== true)),
