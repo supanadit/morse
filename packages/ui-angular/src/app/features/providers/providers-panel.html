@@ -177,18 +177,20 @@
         <p class="hint">Discovery reads the endpoint's <code>/models</code> listing. Blank limits leave {{ engine() }}'s own default; corrections here always win.</p>
 
         @for (model of models(); track $index) {
-          <div class="model-row">
-            <div class="form-grid">
-              <label class="field">
+          <div class="model-card">
+            <div class="model-head">
+              <label class="field model-id">
                 <span>Model ID</span>
                 <input [value]="model.id" placeholder="gpt-5" (input)="setModel($index, 'id', $any($event.target).value)" />
               </label>
-              <label class="field">
+              <label class="field model-name">
                 <span>Display name</span>
                 <input [value]="model.name" placeholder="GPT-5" (input)="setModel($index, 'name', $any($event.target).value)" />
               </label>
+              <button type="button" class="icon danger" aria-label="Remove model" title="Remove model" (click)="removeModel($index)">×</button>
             </div>
-            <div class="form-grid three">
+
+            <div class="model-limits">
               <label class="field">
                 <span>Context window</span>
                 <input type="number" min="1" [value]="model.context" placeholder="131072" (input)="setModel($index, 'context', $any($event.target).value)" />
@@ -197,41 +199,37 @@
                 <span>Max output</span>
                 <input type="number" min="1" [value]="model.output" placeholder="32768" (input)="setModel($index, 'output', $any($event.target).value)" />
               </label>
-              <label class="field check">
-                <span>Reasoning</span>
-                <input type="checkbox" [checked]="model.reasoning" (change)="setModel($index, 'reasoning', $any($event.target).checked)" />
-              </label>
             </div>
-            <div class="field">
-              <span>Input modalities</span>
-              <div class="input-list">
+
+            <div class="cap-line">
+              <span class="cap-label">Capabilities</span>
+              <div class="chips">
+                <label class="chip" [class.on]="model.reasoning">
+                  <input type="checkbox" [checked]="model.reasoning" (change)="setModel($index, 'reasoning', $any($event.target).checked)" />
+                  reasoning
+                </label>
                 @for (input of inputs; track input) {
-                  <label class="chip">
+                  <label class="chip" [class.on]="hasInput($index, input)">
                     <input type="checkbox" [checked]="hasInput($index, input)" (change)="toggleInput($index, input)" />
                     {{ input }}
                   </label>
                 }
               </div>
             </div>
+
             @if (model.reasoning) {
-              <div class="form-grid">
-                <label class="field">
-                  <span>Minimum thinking level</span>
-                  <select [value]="model.min" (change)="setModel($index, 'min', $any($event.target).value)">
-                    <option value="">Engine default</option>
-                    @for (level of levels; track level) { <option [value]="level">{{ level }}</option> }
-                  </select>
-                </label>
-                <label class="field">
-                  <span>Maximum thinking level</span>
-                  <select [value]="model.max" (change)="setModel($index, 'max', $any($event.target).value)">
-                    <option value="">Engine default</option>
-                    @for (level of levels; track level) { <option [value]="level">{{ level }}</option> }
-                  </select>
-                </label>
+              <div class="cap-line thinking-line">
+                <span class="cap-label">Thinking levels</span>
+                <div class="chips">
+                  @for (level of levels; track level) {
+                    <label class="chip" [class.on]="hasThinking($index, level)">
+                      <input type="checkbox" [checked]="hasThinking($index, level)" (change)="toggleThinking($index, level)" />
+                      {{ level }}
+                    </label>
+                  }
+                </div>
               </div>
             }
-            <button type="button" class="text danger remove-model" (click)="removeModel($index)">Remove model</button>
           </div>
         }
 

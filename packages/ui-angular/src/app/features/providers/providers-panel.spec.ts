@@ -116,7 +116,7 @@ describe('ProvidersPanel', () => {
     panel.formName.set('New gateway');
     panel.formBaseURL.set('https://llm.example.com/v1');
     panel.formKey.set('sk-abc');
-    panel.models.update(() => [{ id: 'model-a', name: 'Model A', context: '100000', output: '8000', input: new Set(['text', 'image']), reasoning: true, min: 'low', max: 'high' }]);
+    panel.models.update(() => [{ id: 'model-a', name: 'Model A', context: '100000', output: '8000', input: new Set(['text', 'image']), reasoning: true, thinking: new Set(['low', 'high']) }]);
     await panel.save();
 
     expect(morse.requestHostCommand).toHaveBeenCalledWith(
@@ -130,6 +130,7 @@ describe('ProvidersPanel', () => {
           maxTokens: 8000,
           input: ['text', 'image'],
           reasoning: true,
+          thinkingLevels: ['low', 'high'],
         })],
         key: 'sk-abc',
       }),
@@ -140,7 +141,7 @@ describe('ProvidersPanel', () => {
     const { fixture, host } = await render();
     await openCard(fixture, host, 'My gateway');
     expect(host.textContent).toContain('Discover models');
-    expect(host.textContent).toContain('Input modalities');
+    expect(host.textContent).toContain('Capabilities');
     expect(host.querySelector('input[type="password"][name="key"]')).toBeTruthy();
     expect(host.textContent).not.toContain('API key for My gateway');
   });

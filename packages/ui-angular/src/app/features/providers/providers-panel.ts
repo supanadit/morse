@@ -30,11 +30,16 @@ interface ModelRow {
   output: string;
   input: Set<ModelInput>;
   reasoning: boolean;
-  min: string;
-  max: string;
+  thinking: Set<ThinkingLevel>;
 }
 
 function toRow(model?: ProviderModel): ModelRow {
+  const thinking = new Set<ThinkingLevel>(model?.thinkingLevels ?? []);
+  for (const level of LEVELS) {
+    if (model?.thinking?.[level] !== undefined && model.thinking[level] !== null) {
+      thinking.add(level);
+    }
+  }
   return {
     id: model?.id ?? '',
     name: model?.name ?? '',
@@ -42,8 +47,7 @@ function toRow(model?: ProviderModel): ModelRow {
     output: model?.maxTokens === undefined ? '' : String(model.maxTokens),
     input: new Set<ModelInput>(model?.input ?? []),
     reasoning: model?.reasoning ?? false,
-    min: '',
-    max: '',
+    thinking,
   };
 }
 
@@ -54,12 +58,17 @@ function fromRow(row: ModelRow): ProviderModel | undefined {
   }
   const context = Number.parseInt(row.context, 10);
   const output = Number.parseInt(row.output, 10);
-  const min = LEVELS.indexOf(row.min as ThinkingLevel);
-  const max = LEVELS.indexOf(row.max as ThinkingLevel);
+  // pi writes a level→value map; OpenCode writes variants. Both are filled from
+  // the same chips, and an explicit null disables a level pi otherwise infers.
   const thinking: Partial<Record<ThinkingLevel, string | null>> = {};
-  if (row.reasoning && min >= 0 && max >= min) {
-    for (let at = 0; at < LEVELS.length; at += 1) {
-      thinking[LEVELS[at]!] = at >= min && at <= max ? LEVELS[at]! : null;
+  const thinkingLevels: ThinkingLevel[] = [];
+  if (row.reasoning) {
+    for (const level of LEVELS) {
+      const on = row.thinking.has(level);
+      thinking[level] = on ? level : null;
+      if (on) {
+        thinkingLevels.push(level);
+      }
     }
   }
   return {
@@ -69,7 +78,7 @@ function fromRow(row: ModelRow): ProviderModel | undefined {
     ...(Number.isFinite(output) && output > 0 ? { maxTokens: output } : {}),
     ...(row.input.size > 0 ? { input: [...row.input] } : {}),
     ...(row.reasoning ? { reasoning: true } : {}),
-    ...(Object.keys(thinking).length > 0 ? { thinking } : {}),
+    ...(row.reasoning ? { thinking, thinkingLevels } : {}),
   };
 }
 
@@ -348,6 +357,27 @@ export class ProvidersPanel {
 
   protected hasInput(index: number, input: ModelInput): boolean {
     return this.models()[index]?.input.has(input) ?? false;
+  }
+
+  protected toggleThinking(index: number, level: ThinkingLevel): void {
+    this.models.update((list) =>
+      list.map((row, at) => {
+        if (at !== index) {
+          return row;
+        }
+        const next = new Set(row.thinking);
+        if (next.has(level)) {
+          next.delete(level);
+        } else {
+          next.add(level);
+        }
+        return { ...row, thinking: next };
+      }),
+    );
+  }
+
+  protected hasThinking(index: number, level: ThinkingLevel): boolean {
+    return this.models()[index]?.thinking.has(level) ?? false;
   }
 
   /** Ask the endpoint for its models and fill the editor with what it reports. */
