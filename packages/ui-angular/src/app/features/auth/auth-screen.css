@@ -1,52 +1,43 @@
 /*
- * The login / first-run gate. A split card after the product reference: the
- * brand panel with the steps on the left, the form on the right — skinned in
- * Morse's own variables so it reads as this app in both colour schemes.
+ * The login / first-run gate. A full-screen split: the brand panel owns the
+ * left half edge to edge, the form the right — no floating card, so the page
+ * reads as a place rather than a dialog that missed its backdrop.
  */
 :host {
   display: contents;
 }
 
 .auth-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100%;
-  padding: 32px 16px;
+  display: grid;
+  grid-template-columns: minmax(340px, 42%) 1fr;
+  min-height: 100dvh;
   background: var(--morse-bg);
 }
 
-.auth-card {
-  display: flex;
-  width: min(760px, 100%);
-  border: 1px solid var(--morse-border);
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--morse-bg-raised, var(--morse-bg));
-}
-
 .brand {
-  flex: 1 1 46%;
-  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  padding: 40px;
   color: #f2ecff;
   background: linear-gradient(160deg, #2a2145 0%, #171226 60%, #0e0b18 100%);
 }
 
 .brand-mark {
   font-size: 22px;
-  margin-bottom: 64px;
+  margin-bottom: clamp(48px, 12vh, 128px);
 }
 
 .brand h1 {
   margin: 0 0 10px;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .brand p {
   margin: 0 0 28px;
-  font-size: 13px;
+  max-width: 36ch;
+  font-size: 13.5px;
   line-height: 1.55;
   color: #b9b0d6;
 }
@@ -58,6 +49,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-width: 36ch;
 }
 
 .steps li {
@@ -88,13 +80,19 @@
 }
 
 .form {
-  flex: 1 1 54%;
-  padding: 36px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.form-inner {
+  width: min(400px, 100%);
 }
 
 .form h2 {
   margin: 0 0 6px;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 650;
 }
 
@@ -120,15 +118,15 @@
   width: 100%;
   box-sizing: border-box;
   padding: 9px 12px;
-  border: 1px solid var(--morse-border);
+  border: 1px solid var(--morse-input-border, var(--morse-border));
   border-radius: 9px;
   font: inherit;
-  color: var(--morse-fg);
-  background: var(--morse-bg);
+  color: var(--morse-input-fg, var(--morse-fg));
+  background: var(--morse-input-bg, var(--morse-bg));
 }
 
 .field input:focus {
-  outline: 2px solid var(--morse-accent, #7c5cff);
+  outline: 2px solid var(--morse-focus, var(--morse-accent, #7c5cff));
   outline-offset: -1px;
 }
 
@@ -143,7 +141,7 @@
 }
 
 .peek {
-  border: 1px solid var(--morse-border);
+  border: 1px solid var(--morse-input-border, var(--morse-border));
   border-radius: 9px;
   background: transparent;
   color: var(--morse-fg-muted);
@@ -175,20 +173,36 @@
   font: inherit;
   font-weight: 650;
   cursor: pointer;
-  color: #fff;
+  color: var(--morse-accent-fg, #fff);
   background: var(--morse-accent, #7c5cff);
 }
 
+.primary:hover:not(:disabled) {
+  background: var(--morse-accent-hover, var(--morse-accent, #7c5cff));
+}
+
+/* A disabled submit is a quiet secondary surface, not the accent at half
+ * opacity — the wash read as a rendering bug, not a state. */
 .primary:disabled {
-  opacity: 0.55;
+  color: var(--morse-fg-muted);
+  background: var(--morse-button-secondary, rgb(128 128 128 / 25%));
   cursor: default;
 }
 
 @media (max-width: 640px) {
-  .auth-card {
-    flex-direction: column;
+  .auth-page {
+    grid-template-columns: 1fr;
+  }
+  .brand {
+    padding: 28px 24px;
   }
   .brand-mark {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+  }
+  .brand p {
+    margin-bottom: 0;
+  }
+  .steps {
+    display: none;
   }
 }

@@ -1,6 +1,5 @@
 <div class="auth-page" role="main" aria-label="Morse login">
-  <div class="auth-card">
-    <section class="brand" aria-hidden="true">
+  <section class="brand" aria-hidden="true">
       <div class="brand-mark">◍</div>
       <h1>{{ setupRequired() ? 'Claim your Morse' : 'Welcome back' }}</h1>
       <p>
@@ -17,6 +16,7 @@
       </ol>
     </section>
     <section class="form" aria-label="{{ setupRequired() ? 'Create the admin account' : 'Log in' }}">
+      <div class="form-inner">
       <h2>{{ setupRequired() ? 'Create admin account' : 'Log in' }}</h2>
       <p class="sub">
         {{ setupRequired() ? 'This only ever happens once.' : 'Your sessions pick up where you left them.' }}
@@ -63,6 +63,6 @@
           {{ working() ? '…' : setupRequired() ? 'Create account' : 'Log in' }}
         </button>
       </form>
+      </div>
     </section>
-  </div>
 </div>

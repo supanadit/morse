@@ -91,7 +91,9 @@
 }
 
 .role.admin {
-  color: #fff;
+  /* The web accent is near-white, so the label must be the accent's
+   * foreground — plain white vanishes on it. */
+  color: var(--morse-accent-fg, #fff);
   border-color: transparent;
   background: var(--morse-accent, #7c5cff);
 }
@@ -156,12 +158,12 @@
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
-  border: 1px solid var(--morse-border);
+  border: 1px solid var(--morse-input-border, var(--morse-border));
   border-radius: 8px;
   font: inherit;
   font-weight: 400;
-  color: var(--morse-fg);
-  background: var(--morse-bg);
+  color: var(--morse-input-fg, var(--morse-fg));
+  background: var(--morse-input-bg, var(--morse-bg));
 }
 
 .primary {
@@ -171,11 +173,18 @@
   font: inherit;
   font-weight: 650;
   cursor: pointer;
-  color: #fff;
+  color: var(--morse-accent-fg, #fff);
   background: var(--morse-accent, #7c5cff);
 }
 
+.primary:hover:not(:disabled) {
+  background: var(--morse-accent-hover, var(--morse-accent, #7c5cff));
+}
+
+/* A disabled submit is a quiet secondary surface, not the accent at half
+ * opacity — the wash read as a rendering bug, not a state. */
 .primary:disabled {
-  opacity: 0.55;
+  color: var(--morse-fg-muted);
+  background: var(--morse-button-secondary, rgb(128 128 128 / 25%));
   cursor: default;
 }
