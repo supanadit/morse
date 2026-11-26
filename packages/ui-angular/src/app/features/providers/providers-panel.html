@@ -8,21 +8,25 @@
   <header class="page-head">
     <div>
       <h2>Providers</h2>
-      <p class="sub">Every provider {{ engine() }} knows is here. Open one, paste its API key, done.</p>
+      @if (step() === 'grid') {
+        <p class="sub">Every provider {{ engine() }} knows is here. Open one, paste its API key, done.</p>
+      }
     </div>
-    <div class="head-actions">
-      <label class="engine">
-        <span>Engine</span>
-        <select [ngModel]="engine()" (ngModelChange)="switchEngine($event)">
-          @for (option of engines(); track option.kind) {
-            <option [value]="option.kind">{{ option.label }}</option>
-          }
-        </select>
-      </label>
-      <button type="button" class="secondary" [disabled]="loading()" (click)="refresh()">
-        {{ loading() ? 'Refreshing…' : 'Refresh' }}
-      </button>
-    </div>
+    @if (step() === 'grid') {
+      <div class="head-actions">
+        <label class="engine">
+          <span>Engine</span>
+          <select [ngModel]="engine()" (ngModelChange)="switchEngine($event)">
+            @for (option of engines(); track option.kind) {
+              <option [value]="option.kind">{{ option.label }}</option>
+            }
+          </select>
+        </label>
+        <button type="button" class="secondary" [disabled]="loading()" (click)="refresh()">
+          {{ loading() ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
+    }
   </header>
 
   @if (error()) {
