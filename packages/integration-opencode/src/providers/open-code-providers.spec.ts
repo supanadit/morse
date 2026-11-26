@@ -93,6 +93,43 @@ describe('OpenCodeProviders', () => {
     expect(auth.anthropic).toEqual({ type: 'api', key: 'sk-ant' });
   });
 
+  it('reads and writes a legacy options block without losing its shape', async () => {
+    const { configPath, providers } = setup();
+    const root = {
+      providers: {
+        'llm-eigen': {
+          name: 'LLM Eigen',
+          npm: '@ai-sdk/openai-compatible',
+          options: { baseURL: 'https://llm.example.com/v1', apiKey: '{env:KEY}' },
+          models: { 'model-a': { name: 'Model A' } },
+        },
+      },
+    };
+    mkdirSync(join(configPath, '..'), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(root));
+
+    const found = (await list(providers)).providers.find((one) => one.id === 'llm-eigen');
+    expect(found).toMatchObject({
+      kind: 'custom',
+      connected: true,
+      baseURL: 'https://llm.example.com/v1',
+      models: [{ id: 'model-a' }],
+    });
+
+    await providers.connect({
+      providerId: 'llm-eigen',
+      name: 'LLM Eigen',
+      baseURL: 'https://llm.example.com/v2',
+      models: [{ id: 'model-b', name: 'Model B' }],
+      key: 'sk-new',
+    });
+    const after = JSON.parse(readFileSync(configPath, 'utf8')).providers['llm-eigen'];
+    expect(after.npm).toBe('@ai-sdk/openai-compatible');
+    expect(after.options).toMatchObject({ baseURL: 'https://llm.example.com/v2', apiKey: 'sk-new' });
+    expect(after.settings).toBeUndefined();
+    expect(Object.keys(after.models)).toEqual(['model-b']);
+  });
+
   it('hands any safe provider id to OpenCode’s own auth login', async () => {
     const { providers } = setup();
     const go = (await providers.loginCommand({ providerId: 'opencode-go' })) as {

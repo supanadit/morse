@@ -201,8 +201,17 @@ export class ProvidersPanel {
     this.morse.refreshModels();
   }
 
-  /** Open a provider card: its detail is where the key is entered. */
+  /**
+   * Open a provider card. A custom endpoint has its own config in the engine —
+   * base URL, API key and a full model list — so it goes to the editor, where
+   * models can be discovered, added, removed and tuned. Built-ins just take a
+   * key or the engine's TUI.
+   */
   protected open(provider: ProviderInfo): void {
+    if (provider.kind === 'custom') {
+      this.editCustom(provider);
+      return;
+    }
     this.selected.set(provider);
     this.formKey.set('');
     this.error.set(null);

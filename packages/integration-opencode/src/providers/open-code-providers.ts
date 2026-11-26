@@ -169,6 +169,17 @@ export class OpenCodeProviders {
       providers.set(next.id, previous === undefined ? next : {
         ...previous,
         ...next,
+        // A provider with a config block is a custom endpoint even when the
+        // engine's registry also knows the id. Keep its models and endpoint.
+        ...(previous.kind === 'custom' || next.kind === 'custom'
+          ? {
+              kind: 'custom' as const,
+              baseURL: next.baseURL ?? previous.baseURL,
+              api: next.api ?? previous.api,
+              models: next.models ?? previous.models,
+              description: next.kind === 'custom' ? next.description : previous.description,
+            }
+          : {}),
         connected: previous.connected || next.connected,
       });
     };
@@ -213,7 +224,12 @@ export class OpenCodeProviders {
     // Custom provider blocks in OpenCode's own config.
     for (const [id, entry] of Object.entries(configured)) {
       const one = isRecord(entry) ? entry : {};
-      const settings = isRecord(one['settings']) ? one['settings'] : {};
+      // OpenCode accepts both `settings` (its newer schema) and `options`
+      // (the legacy schema still in use by existing configs).
+      const settings = {
+        ...(isRecord(one['options']) ? one['options'] : {}),
+        ...(isRecord(one['settings']) ? one['settings'] : {}),
+      };
       const hasKey =
         (typeof settings['apiKey'] === 'string' && settings['apiKey'].length > 0) || hasStored(auth, id);
       const connected = hasKey || hasEnvOf(one['env'], this.env);
@@ -299,16 +315,24 @@ export class OpenCodeProviders {
     const configured = isRecord(root['providers']) ? root['providers'] : {};
     const keptProvider = configured[input.providerId];
     const previous = isRecord(keptProvider) ? keptProvider : {};
-    const settings = isRecord(previous['settings']) ? previous['settings'] : {};
+    // Preserve whichever schema the existing block uses. Writing `settings` into
+    // an `options` block would leave the URL and key where OpenCode never reads.
+    const legacy = isRecord(previous['options']);
+    const field = legacy ? 'options' : 'settings';
+    const settings = isRecord(previous[field]) ? previous[field] : {};
     const models = isRecord(previous['models']) ? previous['models'] : {};
-    const api = input.api ?? (typeof previous['package'] === 'string'
-      ? packageApi(previous['package'])
-      : DEFAULT_API);
+    const npm = typeof previous['npm'] === 'string' ? previous['npm'] : undefined;
+    const api = input.api ?? (npm !== undefined
+      ? packageApi(npm)
+      : typeof previous['package'] === 'string'
+        ? packageApi(previous['package'])
+        : DEFAULT_API);
     const entry = {
       ...previous,
       name: input.name ?? (typeof previous['name'] === 'string' ? previous['name'] : input.providerId),
-      package: OPENCODE_PACKAGE[api as keyof typeof OPENCODE_PACKAGE] ?? OPENCODE_PACKAGE[DEFAULT_API],
-      settings: {
+      ...(legacy ? { npm: npm ?? OPENCODE_PACKAGE[api as keyof typeof OPENCODE_PACKAGE] ?? OPENCODE_PACKAGE[DEFAULT_API] } : {}),
+      ...(legacy ? {} : { package: OPENCODE_PACKAGE[api as keyof typeof OPENCODE_PACKAGE] ?? OPENCODE_PACKAGE[DEFAULT_API] }),
+      [field]: {
         ...settings,
         baseURL: input.baseURL,
         ...(input.key === undefined ? {} : { apiKey: input.key }),
@@ -409,11 +433,12 @@ export class OpenCodeProviders {
     const keptEntry = configured[providerId];
     const entry = isRecord(keptEntry) ? keptEntry : undefined;
     if (entry !== undefined) {
-      const settings = isRecord(entry['settings']) ? entry['settings'] : {};
+      const field = isRecord(entry['options']) ? 'options' : 'settings';
+      const settings = isRecord(entry[field]) ? entry[field] : {};
       if ('apiKey' in settings || 'env' in entry) {
         const next = { ...settings };
         delete next['apiKey'];
-        const provider: Record<string, unknown> = { ...entry, settings: next };
+        const provider: Record<string, unknown> = { ...entry, [field]: next };
         delete provider['env'];
         const written = await this.writeConfig({ ...root, providers: { ...configured, [providerId]: provider } });
         if (!written.ok) {

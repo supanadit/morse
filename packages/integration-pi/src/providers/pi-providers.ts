@@ -262,8 +262,14 @@ export class PiProviders {
       seen.add(id);
     }
 
-    // Custom endpoints, named and configured by the reader.
+    // Custom endpoints, named and configured by the reader. A config block wins
+    // over the engine catalog entry: it is the endpoint Morse must let the
+    // reader edit, discover models on and delete models from.
     for (const [id, entry] of Object.entries(configured)) {
+      const at = providers.findIndex((one) => one.id === id);
+      if (at >= 0) {
+        providers.splice(at, 1);
+      }
       const one = isRecord(entry) ? entry : {};
       const apiKey = one['apiKey'];
       const hasKey = typeof apiKey === 'string' && apiKey.length > 0;

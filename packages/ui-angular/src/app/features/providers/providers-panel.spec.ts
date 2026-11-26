@@ -136,6 +136,15 @@ describe('ProvidersPanel', () => {
     );
   });
 
+  it('opens a custom provider in the full model editor, not the key form', async () => {
+    const { fixture, host } = await render();
+    await openCard(fixture, host, 'My gateway');
+    expect(host.textContent).toContain('Discover models');
+    expect(host.textContent).toContain('Input modalities');
+    expect(host.querySelector('input[type="password"][name="key"]')).toBeTruthy();
+    expect(host.textContent).not.toContain('API key for My gateway');
+  });
+
   it('disconnects from the connected provider detail', async () => {
     const { fixture, host, morse } = await render();
     await openCard(fixture, host, 'OpenAI');
