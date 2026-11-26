@@ -37,9 +37,14 @@
       <label class="search">
         <input type="search" placeholder="Search providers" [ngModel]="query()" (ngModelChange)="query.set($event)" />
       </label>
-      <span class="summary">{{ builtins().length }} providers · {{ connectedCount() }} connected</span>
+      <span class="summary">
+        @if (loading()) { Loading providers… } @else { {{ builtins().length }} providers · {{ connectedCount() }} connected }
+      </span>
     </div>
 
+    @if (loading()) {
+      <p class="hint">Reading {{ engine() }}'s provider catalog…</p>
+    } @else {
     <div class="grid">
       @for (provider of builtins(); track provider.id) {
         <button type="button" class="card" [class.connected]="provider.connected" (click)="open(provider)">
@@ -73,6 +78,7 @@
         </span>
       </button>
     </div>
+    }
   } @else if (step() === 'detail') {
     @if (selected(); as provider) {
       <div class="form">

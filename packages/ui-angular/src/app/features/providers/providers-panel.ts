@@ -193,6 +193,7 @@ export class ProvidersPanel {
 
   protected async switchEngine(engine: string): Promise<void> {
     this.engine.set(engine);
+    this.status.set(undefined); // Do not show the previous engine's list as this one's.
     this.step.set('grid');
     this.selected.set(undefined);
     this.notice.set(null);
