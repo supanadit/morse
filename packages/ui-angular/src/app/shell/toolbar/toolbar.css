@@ -235,40 +235,6 @@
   color: var(--morse-fg);
 }
 
-.user {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--morse-fg-muted);
-  border: 1px solid var(--morse-border);
-  border-radius: 999px;
-  padding: 2px 4px 2px 10px;
-}
-
-.user-name {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.logout {
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--morse-fg-muted);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 3px 6px;
-}
-
-.logout:hover {
-  color: var(--morse-fg);
-  background: color-mix(in srgb, var(--morse-fg) 8%, transparent);
-}
-
 .icon {
   flex: none;
   width: 24px;

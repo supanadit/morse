@@ -8,7 +8,6 @@ import {
   output,
 } from '@angular/core';
 import { MorseService } from '../../host/morse.service';
-import { AuthState } from '../../host/auth-state';
 import { LayoutState } from '../../state/layout-state';
 import { DisplayPrefs } from '../../state/display-prefs';
 import { McpState } from '../../state/mcp-state';
@@ -38,9 +37,6 @@ import { SHORTCUTS, bindingLabel, isManagedShortcut } from '../../services/short
 })
 export class Toolbar {
   private readonly morse = inject(MorseService);
-  private readonly auth = inject(AuthState);
-  /** The login user on multi-user hosts; absent everywhere else. */
-  protected readonly currentUser = computed(() => this.morse.user());
   private readonly shell = inject(ShellState);
   private readonly display = inject(DisplayPrefs);
   private readonly layout = inject(LayoutState);
@@ -274,11 +270,6 @@ export class Toolbar {
   /** Opens the MCP manager; the panel fetches the status when it mounts. */
   protected openMcp(): void {
     this.shell.openMcp();
-  }
-
-  /** Ends this login session and reloads into the login screen. */
-  protected logout(): void {
-    void this.auth.logout();
   }
 
   /**

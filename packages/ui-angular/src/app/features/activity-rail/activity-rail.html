@@ -41,3 +41,61 @@
     </button>
   }
 </nav>
+@if (currentUser(); as user) {
+  <!--
+       The login user lives at the rail's foot, the way the reference parks its
+       account card at the sidebar's foot: an avatar button, and a card with
+       the name, the role and the way out. The toolbar keeps the window's own
+       controls; who is signed in is not one of them.
+  -->
+  <div class="account">
+    <button
+      type="button"
+      class="avatar"
+      [style.background]="'hsl(' + avatarHue() + ' 45% 42%)'"
+      [attr.aria-expanded]="menuOpen()"
+      [attr.aria-label]="'Account: ' + user.username"
+      [title]="user.username"
+      (click)="toggleMenu()"
+    >
+      {{ avatarInitial() }}
+    </button>
+    @if (menuOpen()) {
+      <button
+        type="button"
+        class="backdrop"
+        aria-label="Close the account card"
+        tabindex="-1"
+        (click)="closeMenu()"
+        (window:keydown.escape)="closeMenu()"
+      ></button>
+      <section class="card" aria-label="Account">
+        <div class="card-head">
+          <span class="avatar large" [style.background]="'hsl(' + avatarHue() + ' 45% 42%)'" aria-hidden="true">
+            {{ avatarInitial() }}
+          </span>
+          <span class="who">
+            <strong class="name">{{ user.username }}</strong>
+            <span class="role" [class.admin]="user.role === 'admin'">
+              {{ user.role === 'admin' ? 'Admin' : 'Member' }}
+            </span>
+          </span>
+        </div>
+        @if (user.role === 'admin') {
+          <button type="button" class="row" (click)="manageUsers()">
+            <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+              <use href="#morse-admin" />
+            </svg>
+            Manage users…
+          </button>
+        }
+        <button type="button" class="row danger" (click)="logout()">
+          <svg class="glyph" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M9.5 3.5h-5v9h5M6.5 8h7M11.5 5.5 14 8l-2.5 2.5" />
+          </svg>
+          Log out
+        </button>
+      </section>
+    }
+  </div>
+}

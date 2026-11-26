@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LayoutState } from '../../state/layout-state';
 import { ShellState, type LeftPane } from '../../state/shell-state';
 import { MorseService } from '../../host/morse.service';
+import { AuthState } from '../../host/auth-state';
 
 /**
  * The web shell's activity rail: the far-left strip that picks which face the
@@ -24,11 +25,28 @@ export class ActivityRail {
   private readonly shell = inject(ShellState);
   private readonly layout = inject(LayoutState);
   private readonly morse = inject(MorseService);
+  private readonly auth = inject(AuthState);
 
   protected readonly leftPane = this.shell.leftPane;
   /** Multi-user admins get the third entry: user management. */
   protected readonly adminVisible = computed(() => this.morse.user()?.role === 'admin');
   protected readonly adminOpen = this.shell.adminOpen;
+  /** The login user on multi-user hosts; absent everywhere else. */
+  protected readonly currentUser = computed(() => this.morse.user());
+  /** The account card open under the rail's foot. */
+  protected readonly menuOpen = signal(false);
+  /** A stable tint for the avatar, hashed from the username. */
+  protected readonly avatarHue = computed(() => {
+    const name = this.currentUser()?.username ?? '';
+    let hash = 0;
+    for (let index = 0; index < name.length; index += 1) {
+      hash = (hash * 31 + name.charCodeAt(index)) | 0;
+    }
+    return Math.abs(hash) % 360;
+  });
+  protected readonly avatarInitial = computed(
+    () => this.currentUser()?.username.charAt(0).toUpperCase() ?? '',
+  );
 
   protected select(pane: LeftPane): void {
     // CSS decides which toggle is on screen; the handler only has to match it.
@@ -51,5 +69,28 @@ export class ActivityRail {
 
   protected toggleAdmin(): void {
     this.shell.toggleAdmin();
+  }
+
+  /** Opens the account card; the rail's foot, like the reference sidebar. */
+  protected toggleMenu(): void {
+    this.menuOpen.update((open) => !open);
+  }
+
+  protected closeMenu(): void {
+    this.menuOpen.set(false);
+  }
+
+  /** Admins jump to user management from their own card. */
+  protected manageUsers(): void {
+    this.closeMenu();
+    if (!this.shell.adminOpen()) {
+      this.shell.toggleAdmin();
+    }
+  }
+
+  /** Ends this login session and reloads into the login screen. */
+  protected logout(): void {
+    this.closeMenu();
+    void this.auth.logout();
   }
 }
