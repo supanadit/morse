@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -180,7 +180,12 @@ describe('OpenCodeProviders', () => {
   });
 
   it('hands any safe provider id to OpenCode’s own auth login', async () => {
-    const { providers } = setup();
+    // A stub binary on PATH: the command is resolved, never run, but without
+    // one the lookup returns undefined on machines without OpenCode installed.
+    const bin = mkdtempSync(join(tmpdir(), 'oc-bin-'));
+    writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexec false "$@"\n');
+    chmodSync(join(bin, 'opencode'), 0o755);
+    const { providers } = setup({ PATH: bin });
     const go = (await providers.loginCommand({ providerId: 'opencode-go' })) as {
       file: string;
       args: string[];
