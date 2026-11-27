@@ -169,21 +169,25 @@ button.chevron:focus-visible {
   font-weight: 600;
 }
 
-/* A row waiting to be read: bold like the active one, plus an accent dot
-   tucked against its icon — the chat-app unread channel. In flow, so the dot
-   keeps the row's own measure at every depth instead of floating in the
-   indent gutter. */
+/* A row waiting to be read: bold like the active one, with the red dot riding
+   on the icon's top-left corner — an overlay, so unread rows keep the exact
+   measure of read ones at every depth. */
+.row.unread {
+  position: relative;
+}
 .row.unread .label {
   font-weight: 600;
 }
 .row.unread::before {
   content: '';
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-right: -3px;
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--morse-error);
+  pointer-events: none;
 }
 
 /*
