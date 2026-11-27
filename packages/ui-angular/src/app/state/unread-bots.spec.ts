@@ -222,6 +222,48 @@ describe('UnreadBots', () => {
     expect(unread.has('c1')).toBe(false);
   });
 
+  it('fetches the roster on its own so code mode learns new rooms', () => {
+    localStorage.clear();
+    const roster = signal<{ conversations: { id: string; updatedAt: number }[] } | null>(null);
+    const transcripts = signal<Record<string, readonly unknown[]>>({});
+    const activeId = signal<string | null>(null);
+    const routing = signal<Record<string, { active: string[] }>>({});
+    const capabilities = signal({ bot: true });
+    const epoch = signal(1);
+    const listBots = vi.fn();
+    const user = signal(null);
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            user: user as Signal<null>,
+            capabilities: capabilities as Signal<{ bot: boolean }>,
+            hostEpoch: epoch as Signal<number>,
+            listBots,
+            bot: {
+              roster: roster as Signal<{ conversations: { id: string; updatedAt: number }[] } | null>,
+              transcripts: transcripts as Signal<Record<string, readonly unknown[]>>,
+              activeId: activeId as Signal<string | null>,
+              routing: routing as Signal<Record<string, { active: string[] }>>,
+            },
+          },
+        },
+      ],
+    });
+    TestBed.inject(UnreadBots);
+    TestBed.tick();
+    // Asked once without any visit to bot mode; never again for the same wire.
+    expect(listBots).toHaveBeenCalledTimes(1);
+    roster.set({ conversations: [] });
+    TestBed.tick();
+    expect(listBots).toHaveBeenCalledTimes(1);
+    roster.set(null);
+    epoch.set(2);
+    TestBed.tick();
+    expect(listBots).toHaveBeenCalledTimes(2);
+  });
+
   it('drops dots for deleted conversations', () => {
     localStorage.clear();
     localStorage.setItem('morse.unread2-bots:single', JSON.stringify(['gone']));

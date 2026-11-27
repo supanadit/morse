@@ -92,6 +92,9 @@ export class UnreadBots {
   /** True when the scope's stored record existed at load (a returning reader). */
   private returning = false;
 
+  /** hostEpoch values a roster was already requested for; a reconnect re-asks. */
+  private listedFor: unknown = null;
+
   constructor() {
     effect(() => {
       // Rounds are the live signal: they end whether or not this client ever
@@ -100,18 +103,23 @@ export class UnreadBots {
       // is only republished on mutations, never on a new message.
       const routing = this.routingKeys();
       const roster = this.roster();
-      // The roster has not arrived yet: rounds still mark, but there is
-      // nothing to reconcile against — and pruning against an empty list
-      // would wipe a returning reader's dots.
-      if (roster === null) {
-        const active = this.activeId();
-        const scope = this.scopeId();
-        untracked(() => this.watchRounds(routing, active, scope));
-        return;
+      // Nobody asks for a roster until Bot mode renders, so a reader who never
+      // leaves Code mode would never learn a room exists. Ask once per
+      // connection instead — the reply is what catch-up reconciles.
+      if (roster === null && this.botCapable()) {
+        const epoch = this.hostEpoch();
+        if (this.listedFor !== epoch) {
+          this.listedFor = epoch;
+          untracked(() => this.requestRoster());
+        }
       }
       const transcripts = this.transcriptLengths();
       const active = this.activeId();
       const scope = this.scopeId();
+      if (roster === null) {
+        untracked(() => this.watchRounds(routing, active, scope));
+        return;
+      }
       untracked(() => {
         this.watchRounds(routing, active, scope);
         this.reconcile(roster, transcripts, active, scope);
@@ -327,6 +335,34 @@ export class UnreadBots {
       return new Set(Object.keys(routing ?? {}));
     } catch {
       return new Set();
+    }
+  }
+
+  /** Whether this host runs bot mode at all; elsewhere there is no roster. */
+  private botCapable(): boolean {
+    try {
+      return (
+        (this.morse as { capabilities?: () => { bot?: boolean } | null }).capabilities?.()
+          ?.bot === true
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private hostEpoch(): unknown {
+    try {
+      return (this.morse as { hostEpoch?: () => unknown }).hostEpoch?.();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private requestRoster(): void {
+    try {
+      (this.morse as { listBots?: () => void }).listBots?.();
+    } catch {
+      // The wire will be there on the next connection; rounds still mark.
     }
   }
 
