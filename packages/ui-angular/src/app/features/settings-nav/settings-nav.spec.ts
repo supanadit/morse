@@ -7,6 +7,7 @@ import {
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
   SETTINGS_OIDC_TAB_ID,
+  SETTINGS_PASSWORD_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
 } from '../../state/workspace-tabs';
 import { SettingsNav } from './settings-nav';
@@ -42,7 +43,7 @@ function clickRow(fixture: ComponentFixture<SettingsNav>, label: string): void {
 describe('SettingsNav', () => {
   it('lists Management/Members/Authentication, Access leaves and Engine/Providers as collapsible sections', () => {
     const fixture = render();
-    expect(labels(fixture)).toEqual(['Management', 'Members', 'Authentication', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Management', 'Members', 'Authentication', 'Access', 'SSH keys', 'Password', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
   });
 
   it('shows only the pages a regular member may open, dropping emptied sections', () => {
@@ -51,7 +52,7 @@ describe('SettingsNav', () => {
     // Management → Profile leaf for everyone would keep the Management header
     // here with Profile under it — the rule is per leaf, not per section.
     const fixture = render(true, false);
-    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'GPG keys', 'Git identity']);
+    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'Password', 'GPG keys', 'Git identity']);
   });
 
   it('opens the Members page on leaf click', () => {
@@ -68,6 +69,14 @@ describe('SettingsNav', () => {
 
     clickRow(fixture, 'Authentication');
     expect(tabs.activeId()).toBe(SETTINGS_OIDC_TAB_ID);
+  });
+
+  it('opens the Password page on leaf click', () => {
+    const fixture = render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+
+    clickRow(fixture, 'Password');
+    expect(tabs.activeId()).toBe(SETTINGS_PASSWORD_TAB_ID);
   });
 
   it('opens the Providers page on leaf click', () => {
@@ -94,7 +103,7 @@ describe('SettingsNav', () => {
     chevron.click();
     fixture.detectChanges();
 
-    expect(labels(fixture)).toEqual(['Management', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Management', 'Access', 'SSH keys', 'Password', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
     expect(tabs.activeId()).toBe(before);
   });
 

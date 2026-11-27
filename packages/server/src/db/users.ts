@@ -17,6 +17,8 @@ export interface MorseUser {
   name: string;
   email: string;
   role: UserRole;
+  /** False while the row still holds the random SSO-provisioned password. */
+  passwordSet: boolean;
   createdAt: number;
 }
 
@@ -26,6 +28,7 @@ interface UserRow {
   name?: string | null;
   email?: string | null;
   role: string;
+  password_set?: string | number | null;
   created_at: string | number;
 }
 
@@ -37,6 +40,8 @@ function toUser(row: UserRow): MorseUser {
     name: row.name || row.username,
     email: row.email ?? '',
     role: row.role === 'admin' ? 'admin' : 'regular',
+    // Rows predate the flag: they were created by a known password.
+    passwordSet: row.password_set === undefined || Number(row.password_set) !== 0,
     createdAt: Number(row.created_at),
   };
 }
@@ -127,6 +132,7 @@ export async function createUser(
     name,
     email,
     role: first ? 'admin' : (options.role ?? 'regular'),
+    passwordSet: true,
     createdAt: Date.now(),
   };
   await db('morse_users').insert({
@@ -214,6 +220,7 @@ export async function createOidcUser(
     name: options.name.slice(0, 120) || options.username,
     email: options.email,
     role: first ? 'admin' : 'regular',
+    passwordSet: false,
     createdAt: Date.now(),
   };
   await db('morse_users').insert({
@@ -222,6 +229,7 @@ export async function createOidcUser(
     name: user.name,
     email: user.email,
     password_hash: hashPassword(randomUUID() + randomUUID()),
+    password_set: 0,
     role: user.role,
     created_at: user.createdAt,
     oidc_sub: options.sub,
@@ -233,7 +241,7 @@ export async function createOidcUser(
 /** Every user, newest last, without password hashes. */
 export async function listUsers(db: Knex): Promise<MorseUser[]> {
   const rows = await db('morse_users')
-    .select('id', 'username', 'name', 'email', 'role', 'created_at')
+    .select('id', 'username', 'name', 'email', 'role', 'password_set', 'created_at')
     .orderBy('created_at', 'asc');
   return (rows as UserRow[]).map(toUser);
 }
@@ -270,7 +278,7 @@ export async function updateUser(
   if (existing === undefined) {
     return undefined;
   }
-  const changes: Record<string, string> = {};
+  const changes: Record<string, string | number> = {};
   if (patch.name !== undefined) {
     changes.name = cleanName(patch.name, existing.username);
   }
@@ -283,6 +291,8 @@ export async function updateUser(
   if (patch.password !== undefined) {
     assertPassword(patch.password);
     changes.password_hash = hashPassword(patch.password);
+    // A real password now exists: SSH and local login unlock together.
+    changes.password_set = 1;
   }
   if (Object.keys(changes).length > 0) {
     await db('morse_users').where({ id }).update(changes);

@@ -177,6 +177,37 @@ describe('AuthController', () => {
     expect(url.searchParams.get('post_logout_redirect_uri')).toBe('http://localhost:4399/');
   });
 
+  it('lets a member set their own password, proving the current one first', async () => {
+    const user = await createUser(db, { username: 'adit', password: 'supersecret' });
+    const token = await createToken(db, user.id);
+    const session = { headers: { cookie: `morse_token=${token}` } };
+    expect(await controller.passwordStatus(session)).toEqual({ needsCurrent: true });
+    await expect(
+      controller.changePassword(session, { currentPassword: 'nope-nope-nope', newPassword: 'newsecret1' }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(await controller.changePassword(session, { currentPassword: 'supersecret', newPassword: 'newsecret1' })).toEqual({
+      ok: true,
+    });
+    expect(await verifyUser(db, 'adit', 'supersecret')).toBeUndefined();
+    expect(await verifyUser(db, 'adit', 'newsecret1')).toBeDefined();
+  });
+
+  it('lets SSO-provisioned members set a password with no current one', async () => {
+    const { createOidcUser } = await import('../../db/users.js');
+    const created = await createOidcUser(db, {
+      username: 'sso.adit',
+      name: 'SSO Adit',
+      email: 'sso@example.com',
+      sub: 'sub-1',
+      issuer: 'https://id.example.com',
+    });
+    expect(created?.passwordSet).toBe(false);
+    const session = { headers: { cookie: `morse_token=${await createToken(db, created!.id, true)}` } };
+    expect(await controller.passwordStatus(session)).toEqual({ needsCurrent: false });
+    expect(await controller.changePassword(session, { newPassword: 'localpass1' })).toEqual({ ok: true });
+    expect(await verifyUser(db, 'sso.adit', 'localpass1')).toBeDefined();
+  });
+
   it('adoptLocalRowsToUser is a no-op helper the specs keep honest', async () => {
     expect(await adoptLocalRowsToUser(db, 'nobody')).toBe(0);
   });

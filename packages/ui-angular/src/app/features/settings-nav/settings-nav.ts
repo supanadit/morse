@@ -7,13 +7,14 @@ import {
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
   SETTINGS_OIDC_TAB_ID,
+  SETTINGS_PASSWORD_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
 } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
 
 /** Which settings page a leaf opens. Groups carry none — they only fold. */
-type SettingsPage = 'members' | 'oidc' | 'access' | 'gpg' | 'git' | 'providers';
+type SettingsPage = 'members' | 'oidc' | 'access' | 'password' | 'gpg' | 'git' | 'providers';
 
 /**
  * The settings menu: the left column's third face, in front while the rail's
@@ -47,20 +48,21 @@ export class SettingsNav {
   /** Groups the reader folded, by node id; absent means open. */
   private readonly folded = signal<ReadonlySet<string>>(new Set());
 
-  /** One leaf's menu row and who may open it. */
+  /** One leaf's menu row and who may open it. Password is every multi-user member's own page. */
   private leaf(
     id: string,
     label: string,
     data: SettingsPage,
     icon: 'admin' | 'plug' | 'lock' | 'tag' | 'git' | 'key',
     adminOnly: boolean,
-  ): TreeNode<SettingsPage> & { adminOnly: boolean } {
-    return { id, label, data, icon, kind: 'leaf', children: [], adminOnly };
+    multiuserOnly = false,
+  ): TreeNode<SettingsPage> & { adminOnly: boolean; multiuserOnly: boolean } {
+    return { id, label, data, icon, kind: 'leaf', children: [], adminOnly, multiuserOnly };
   }
 
   protected readonly treeNodes = computed<TreeNode<SettingsPage>[]>(() => {
     const admin = this.admin();
-    const groups: { node: TreeNode<SettingsPage>; leaves: ({ adminOnly: boolean } & TreeNode<SettingsPage>)[] }[] = [];
+    const groups: { node: TreeNode<SettingsPage>; leaves: ({ adminOnly: boolean; multiuserOnly: boolean } & TreeNode<SettingsPage>)[] }[] = [];
     if (this.multiuser()) {
       groups.push({
         node: {
@@ -94,6 +96,7 @@ export class SettingsNav {
       },
       leaves: [
         this.leaf(SETTINGS_ACCESS_TAB_ID, 'SSH keys', 'access', 'lock', false),
+        this.leaf(SETTINGS_PASSWORD_TAB_ID, 'Password', 'password', 'key', false, true),
         this.leaf(SETTINGS_GPG_TAB_ID, 'GPG keys', 'gpg', 'tag', false),
         this.leaf(SETTINGS_GIT_TAB_ID, 'Git identity', 'git', 'git', false),
       ],
@@ -115,11 +118,13 @@ export class SettingsNav {
     // page always sits under its section, so the tree keeps one shape
     // everywhere — only the leaves differ by role.
     return groups.flatMap(({ node, leaves }) => {
-      const visible = leaves.filter((leaf) => !leaf.adminOnly || admin);
+      const visible = leaves.filter(
+        (leaf) => (!leaf.adminOnly || admin) && (!leaf.multiuserOnly || this.multiuser()),
+      );
       if (visible.length === 0) {
         return [];
       }
-      return [{ ...node, children: visible.map(({ adminOnly, ...row }) => row) }];
+      return [{ ...node, children: visible.map(({ adminOnly, multiuserOnly, ...row }) => row) }];
     });
   });
 
@@ -152,6 +157,8 @@ export class SettingsNav {
       this.tabs.openOidcPage();
     } else if (node.data === 'access') {
       this.tabs.openAccessPage();
+    } else if (node.data === 'password') {
+      this.tabs.openPasswordPage();
     } else if (node.data === 'gpg') {
       this.tabs.openGpgPage();
     } else if (node.data === 'git') {

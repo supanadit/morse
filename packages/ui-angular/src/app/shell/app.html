@@ -418,6 +418,11 @@
         <div class="settings-scroll">
           <ng-container [ngComponentOutlet]="accessComponent()" />
         </div>
+      } @else if (activeSettingsPage() === 'password') {
+        <!-- The settings menu's Password page: the member's own credential. -->
+        <div class="settings-scroll">
+          <morse-password-panel />
+        </div>
       } @else if (activeSettingsPage() === 'gpg') {
         <!-- GPG has its own page: armored public/private views per key. -->
         <div class="settings-scroll">

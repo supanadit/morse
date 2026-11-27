@@ -32,7 +32,7 @@ export interface PersistedMcpTab extends PersistedTabBase {
 /** A settings page; the page reopens, its form starts fresh. */
 export interface PersistedSettingsTab extends PersistedTabBase {
   kind: 'settings';
-  page: 'members' | 'oidc' | 'access' | 'gpg' | 'git' | 'providers';
+  page: 'members' | 'oidc' | 'access' | 'password' | 'gpg' | 'git' | 'providers';
 }
 
 /** A bot conversation; its id is the conversation id the host opens. */
@@ -165,7 +165,7 @@ export function asPersistedTab(value: unknown): PersistedTab | undefined {
     // An unknown page is not worth guessing at.
     if (
       typeof title !== 'string' ||
-      (candidate['page'] !== 'members' && candidate['page'] !== 'oidc' && candidate['page'] !== 'access' && candidate['page'] !== 'gpg' && candidate['page'] !== 'git' && candidate['page'] !== 'providers')
+      (candidate['page'] !== 'members' && candidate['page'] !== 'oidc' && candidate['page'] !== 'access' && candidate['page'] !== 'password' && candidate['page'] !== 'gpg' && candidate['page'] !== 'git' && candidate['page'] !== 'providers')
     ) {
       return undefined;
     }

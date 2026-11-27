@@ -35,6 +35,7 @@ import { SearchPanel } from '../features/search-panel/search-panel';
 import { ActivityRail } from '../features/activity-rail/activity-rail';
 import { AdminPanel } from '../features/admin/admin-panel';
 import { OidcPanel } from '../features/oidc/oidc-panel';
+import { PasswordPanel } from '../features/password/password-panel';
 import { ProvidersPanel } from '../features/providers/providers-panel';
 import { AuthScreen } from '../features/auth/auth-screen';
 import { AuthState } from '../host/auth-state';
@@ -132,6 +133,7 @@ interface SubagentEntry extends ChildSessionRef {
     ActivityRail,
     AdminPanel,
     OidcPanel,
+    PasswordPanel,
     ProvidersPanel,
     AuthScreen,
     FileExplorer,
@@ -205,7 +207,11 @@ export class App {
       return undefined;
     }
     // Self-service: any signed-in member (or a single-user host) sees Access.
-    if (tab.page === 'access' || tab.page === 'gpg' || tab.page === 'git') {
+    // Password is the one self-service page with no meaning without logins.
+    if (tab.page === 'access' || tab.page === 'password' || tab.page === 'gpg' || tab.page === 'git') {
+      if (tab.page === 'password' && this.auth.status()?.multiuser !== true) {
+        return undefined;
+      }
       return this.accessAllowed() ? tab.page : undefined;
     }
     if (!this.settingsAllowed()) {

@@ -6,14 +6,16 @@ import type { MorseServerConfig } from '../../app/config.js';
 import { MORSE_CONFIG, MORSE_DB, MORSE_LOGGER } from '../../app/tokens.js';
 import { adoptLocalRowsToUser } from '../../db/factory.js';
 import { effectiveOidc, isOidcUsable, loadOidcConfig, saveOidcConfig, type StoredOidcConfig } from '../../db/oidc-config.js';
-import { createToken, isOidcSession, resolveToken, revokeToken } from '../../db/tokens.js';
+import { createToken, isOidcSession, resolveToken, revokeToken, revokeUserTokens } from '../../db/tokens.js';
 import {
   countUsers,
   createOidcUser,
   createUser,
   findUserByEmail,
+  findUserById,
   findUserByOidc,
   setOidcLink,
+  updateUser,
   verifyUser,
 } from '../../db/users.js';
 import {
@@ -402,6 +404,67 @@ export class AuthController {
       }
     }
     response.redirect('/');
+  }
+
+  /**
+   * Self-service password: what the Access → Password page needs — whether
+   * this member must prove the current password first. SSO-provisioned rows
+   * (random password nobody knows) skip that; everyone else does not.
+   */
+  @Get('password')
+  async passwordStatus(@Req() rawRequest: unknown): Promise<{ needsCurrent: boolean }> {
+    const db = this.requireDb();
+    const user = await authUserOfRequest(db, (rawRequest as AuthRequest).headers as Record<string, unknown>);
+    if (user === undefined) {
+      throw refuse(HttpStatus.UNAUTHORIZED, 'Login required.');
+    }
+    const full = await findUserById(db, user.id);
+    return { needsCurrent: full?.passwordSet !== false };
+  }
+
+  /**
+   * Sets the caller's own password — the same credential SSH and local login
+   * read. With a known password the current one must verify first; without
+   * one (SSO-provisioned) it is set directly. Either way every session of
+   * that user ends here, exactly like the admin edit, so the reader re-proves
+   * the new credential on the next screen.
+   */
+  @Post('password')
+  async changePassword(
+    @Req() rawRequest: unknown,
+    @Body() body: { currentPassword?: unknown; newPassword?: unknown },
+  ): Promise<{ ok: true }> {
+    const db = this.requireDb();
+    const request = rawRequest as AuthRequest;
+    const user = await authUserOfRequest(db, request.headers as Record<string, unknown>);
+    if (user === undefined) {
+      throw refuse(HttpStatus.UNAUTHORIZED, 'Login required.');
+    }
+    const full = await findUserById(db, user.id);
+    if (full === undefined) {
+      throw refuse(HttpStatus.UNAUTHORIZED, 'Login required.');
+    }
+    if (full.passwordSet !== false) {
+      const current = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+      const verified = await verifyUser(db, full.username, current);
+      if (verified === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        throw refuse(HttpStatus.UNAUTHORIZED, 'The current password is wrong.');
+      }
+    }
+    const next = typeof body.newPassword === 'string' ? body.newPassword : '';
+    try {
+      // The write also flips the flag and syncs the OS user for SSH hosts.
+      const updated = await updateUser(db, user.id, { password: next });
+      if (updated === undefined) {
+        throw new Error('No such user.');
+      }
+    } catch (error: unknown) {
+      throw refuse(HttpStatus.BAD_REQUEST, error instanceof Error ? error.message : 'Could not set the password.');
+    }
+    await revokeUserTokens(db, user.id);
+    this.logger.info(`User "${full.username}" set their own password.`);
+    return { ok: true };
   }
 
   /** Admin read: the saved SSO provider, or the env one (read-only) when managed there. */

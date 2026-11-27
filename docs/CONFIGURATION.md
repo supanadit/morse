@@ -39,7 +39,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_OIDC_END_SESSION_URL` | from discovery when present | Where logout bounces to end the provider session (so the next login can pick a different user). Without one, logout ends the Morse session locally only |
 | `MORSE_OIDC_CLIENT_ID` / `MORSE_OIDC_CLIENT_SECRET` | unset | The provider's client credentials for Morse |
 | `MORSE_OIDC_SCOPES` | `openid profile email` | Scopes requested at login |
-| `MORSE_OIDC_ALLOW_SIGNUP` | enabled | First SSO login creates the account (`0`/`false`/`off` restricts SSO to existing members). Linked by provider subject first, email otherwise — enabling SSO never strands a local account |
+| `MORSE_OIDC_ALLOW_SIGNUP` | enabled | First SSO login creates the account (`0`/`false`/`off` restricts SSO to existing members). Linked by provider subject first, email otherwise — enabling SSO never strands a local account. SSO-created members hold a random password until they set one on Settings → Access → Password, which is also what unlocks SSH. |
 | `MORSE_ENGINE` | `pi` | Engine new sessions start in: `pi` or `opencode` (an unreachable engine falls back to pi) |
 | `MORSE_OPENCODE_URL` | unset | Attach to a running OpenCode server instead of spawning one |
 | `MORSE_OPENCODE_PASSWORD` | unset | The password that server printed; required with a URL |

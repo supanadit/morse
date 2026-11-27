@@ -134,6 +134,22 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 6,
+    name: 'local credential flag',
+    up: async (db) => {
+      // Whether the row holds a locally-known password. SSO provisioning
+      // writes a random unusable one, so those rows read 0 until the member
+      // (or an admin) sets a real password — which is what unlocks SSH.
+      const hasFlag = await db.schema.hasColumn('morse_users', 'password_set');
+      if (!hasFlag) {
+        await db.schema.alterTable('morse_users', (table) => {
+          table.integer('password_set').notNullable().defaultTo(1);
+        });
+      }
+      await db('morse_users').whereNotNull('oidc_sub').update({ password_set: 0 });
+    },
+  },
 ];
 
 /**

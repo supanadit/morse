@@ -112,7 +112,7 @@ export interface SettingsTab {
   id: string;
   title: string;
   /** Which settings page this tab shows. More pages reuse the same shape. */
-  page: 'members' | 'oidc' | 'access' | 'gpg' | 'git' | 'providers';
+  page: 'members' | 'oidc' | 'access' | 'password' | 'gpg' | 'git' | 'providers';
 }
 
 import type {
@@ -155,6 +155,7 @@ export const MCP_TAB_ID = 'mcp:servers';
 export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
 export const SETTINGS_OIDC_TAB_ID = 'settings:authentication';
 export const SETTINGS_ACCESS_TAB_ID = 'settings:access';
+export const SETTINGS_PASSWORD_TAB_ID = 'settings:password';
 export const SETTINGS_GPG_TAB_ID = 'settings:gpg';
 export const SETTINGS_GIT_TAB_ID = 'settings:git';
 export const SETTINGS_PROVIDERS_TAB_ID = 'settings:providers';
@@ -681,6 +682,16 @@ export class WorkspaceTabs {
     });
   }
 
+  /** Opens the Password page under Access in the settings menu. */
+  openPasswordPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_PASSWORD_TAB_ID,
+      title: 'Password',
+      page: 'password',
+    });
+  }
+
   /** Opens the GPG page under Access in the settings menu. */
   openGpgPage(): void {
     this.focusOrOpen({
@@ -1031,7 +1042,7 @@ export class WorkspaceTabs {
   /** True while an admin-only settings page (Members, Providers) is open. */
   hasAdminSettingsTabs(): boolean {
     return this.items().some(
-      (tab) => tab.kind === 'settings' && tab.page !== 'access' && tab.page !== 'gpg' && tab.page !== 'git',
+      (tab) => tab.kind === 'settings' && tab.page !== 'access' && tab.page !== 'password' && tab.page !== 'gpg' && tab.page !== 'git',
     );
   }
 
@@ -1051,7 +1062,7 @@ export class WorkspaceTabs {
       return;
     }
     this.items.update((list) =>
-      list.filter((tab) => tab.kind !== 'settings' || tab.page === 'access' || tab.page === 'gpg' || tab.page === 'git'),
+      list.filter((tab) => tab.kind !== 'settings' || tab.page === 'access' || tab.page === 'password' || tab.page === 'gpg' || tab.page === 'git'),
     );
     const active = this.active();
     if (active !== undefined && !this.items().some((tab) => tab.id === active)) {
