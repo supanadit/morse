@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { windowsExtensions } from '@morse/system';
+import { windowsExtensions, expandConfiguredPath } from '@morse/system';
 
 /**
  * Finds the OpenCode binary, and says how to start it.
@@ -61,7 +61,7 @@ export function resolveOpenCodeSpawn(
 }
 
 function locate(binary: string, env: NodeJS.ProcessEnv): OpenCodeInstall | undefined {
-  const name = binary.trim();
+  const name = expandConfiguredPath(binary.trim());
   if (name.length === 0) {
     return undefined;
   }

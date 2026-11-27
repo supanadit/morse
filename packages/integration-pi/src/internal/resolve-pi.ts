@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { AgentUnavailableError } from '@morse/system';
-import { windowsExtensions } from '@morse/system';
+import { expandConfiguredPath, windowsExtensions } from '@morse/system';
 import { readPiVersion } from './pi-install.js';
 
 export interface ResolvePiOptions {
@@ -63,8 +63,8 @@ export function resolvePi(options: ResolvePiOptions = {}): PiSpawn {
   const env = options.env ?? process.env;
   const args = buildRpcArgs(options);
   const configured = options.piPath ?? env.MORSE_PI_PATH;
-  if (configured) {
-    return { command: configured, args, source: 'configured' };
+  if (configured && configured.trim().length > 0) {
+    return { command: expandConfiguredPath(configured.trim()), args, source: 'configured' };
   }
 
   const entry = options.nodeEntryPath ?? env.MORSE_PI_ENTRY;
@@ -113,8 +113,8 @@ export interface PiCliSpawn {
 export function resolvePiCli(options: ResolvePiOptions = {}): PiCliSpawn {
   const env = options.env ?? process.env;
   const configured = options.piPath ?? env.MORSE_PI_PATH;
-  if (configured) {
-    return { command: configured, baseArgs: [], source: 'configured' };
+  if (configured && configured.trim().length > 0) {
+    return { command: expandConfiguredPath(configured.trim()), baseArgs: [], source: 'configured' };
   }
 
   const onPath = findOnPathBinary('pi', env);

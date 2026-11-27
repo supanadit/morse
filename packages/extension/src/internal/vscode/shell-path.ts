@@ -22,8 +22,11 @@ export async function loginShellPath(
   if (process.platform === 'win32') {
     return windowsPath(env);
   }
-  const shell = env.SHELL !== undefined && env.SHELL.trim().length > 0 ? env.SHELL.trim() : '/bin/bash';
-  return new Promise((resolve) => {
+  // macOS Finder/Dock launches leave SHELL unset; bash would miss the user's
+  // zsh profile (Homebrew, nvm), so default to zsh there.
+  const fallbackShell = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+  const shell = env.SHELL !== undefined && env.SHELL.trim().length > 0 ? env.SHELL.trim() : fallbackShell;
+  const login = await new Promise<string | undefined>((resolve) => {
     execFile(
       shell,
       // Log-in *and* interactive: nvm/asdf/volta are usually set up in `.zshrc`
@@ -39,6 +42,7 @@ export async function loginShellPath(
       },
     );
   });
+  return withMacDefaults(login, env);
 }
 
 /**
@@ -229,4 +233,36 @@ export function extractLoginPath(stdout: string): string | undefined {
   const match = /__MORSE_PATH__([\s\S]*?)__MORSE_END__/.exec(stdout);
   const path = match?.[1]?.trim();
   return path !== undefined && path.length > 0 ? path : undefined;
+}
+
+/**
+ * Well-known macOS install locations the login shell can still miss (a broken
+ * profile, `zsh -i` skipped, sudo npm leaving a root-owned prefix). Appended
+ * when absent; existing entries are never duplicated. Non-existent entries are
+ * harmless: `findOnPathBinary` only reports a real file.
+ */
+export function withMacDefaults(
+  loginPath: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (process.platform !== 'darwin') {
+    return loginPath;
+  }
+  const home = env.HOME ?? homedir();
+  const defaults = [
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    '/usr/local/sbin',
+    '/opt/local/bin',
+    home.length > 0 ? join(home, '.local', 'bin') : undefined,
+    home.length > 0 ? join(home, '.npm-global', 'bin') : undefined,
+  ].filter((entry): entry is string => entry !== undefined && entry.length > 0);
+  const base = loginPath ?? env.PATH ?? env.Path ?? '';
+  const seen = new Set(base.split(':').filter(Boolean));
+  const additions = defaults.filter((entry) => !seen.has(entry));
+  if (additions.length === 0) {
+    return base.length > 0 ? base : undefined;
+  }
+  return [base, ...additions].filter((value) => value.length > 0).join(':');
 }

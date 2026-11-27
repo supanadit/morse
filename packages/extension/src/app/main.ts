@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import {
@@ -18,6 +19,7 @@ import {
   FileSessionStore,
   SessionRegistry,
   describeError,
+  expandConfiguredPath,
   morseSessionsDir,
 } from '@morse/system';
 import {
@@ -297,6 +299,26 @@ export function deactivate(): void {
 }
 
 /**
+ * An explicitly configured binary counts as visible only when it names a PATH
+ * lookup (no separator — enrichment may still find it) or an existing file
+ * (after `~`/`$VAR` expansion). A typo'd absolute path otherwise suppresses
+ * the login-shell enrichment that would have found the real install.
+ */
+function configuredPathExists(configured: string | undefined): boolean {
+  if (configured === undefined) {
+    return false;
+  }
+  const expanded = expandConfiguredPath(configured.trim());
+  if (expanded.length === 0) {
+    return false;
+  }
+  if (!expanded.includes('/') && !expanded.includes('\\')) {
+    return true;
+  }
+  return existsSync(expanded);
+}
+
+/**
  * Where this window stores its shell layout. `storageUri` is per-workspace, so two
  * windows on two folders keep their own sessions in front instead of fighting over
  * one file; a window with no folder open (an empty window) falls back to the
@@ -345,10 +367,11 @@ async function resolveSpawnEnv(
   logger: OutputChannelLogger,
 ): Promise<NodeJS.ProcessEnv | undefined> {
   const piVisible =
-    piConfig.piPath !== undefined || findOnPathBinary('pi', process.env) !== undefined;
+    configuredPathExists(piConfig.piPath) ||
+    findOnPathBinary('pi', process.env) !== undefined;
   const openCodeVisible =
     openCodeConfig.url !== undefined ||
-    openCodeConfig.bin !== undefined ||
+    configuredPathExists(openCodeConfig.bin) ||
     findOpenCodeBinary('opencode', process.env) !== undefined;
   if (piVisible && openCodeVisible) {
     return undefined;
