@@ -1,0 +1,104 @@
+name: OpenCode install coverage
+
+# Morse reads one thing out of the OpenCode install it launched: the binary
+# itself (settings sign-in hands a provider id to `opencode auth login` in an
+# interactive terminal). OpenCode ships two everyday paths — the install script
+# (a native binary in `~/.opencode/bin`) and `npm i -g @opencode/cli` (a
+# symlink/shim into `node_modules`) — and each lays the binary out
+# differently on each OS.
+#
+# The unit suite pins those layouts as fixtures, and a fixture can only be as
+# faithful as the person who wrote it. This workflow installs the real thing
+# and runs the built provider code against it. It is the only test here that
+# would fail because OpenCode moved its binary, changed its shim shape, or
+# renamed `auth login`.
+#
+# macOS is its own axis: the installer picks `~/.opencode/bin` on both Unixes,
+# but npm's global prefix and shim format differ per OS (symlink on POSIX,
+# `.cmd`/`.ps1` shims on Windows — the shim case Morse unwraps by hand).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - packages/integration-opencode/src/internal/resolve-opencode.ts
+      - packages/integration-opencode/src/providers/open-code-providers.ts
+      - scripts/check-opencode-coverage.mjs
+      - .github/workflows/opencode-install-coverage.yml
+  pull_request:
+    paths:
+      - packages/integration-opencode/src/internal/resolve-opencode.ts
+      - packages/integration-opencode/src/providers/open-code-providers.ts
+      - scripts/check-opencode-coverage.mjs
+      - .github/workflows/opencode-install-coverage.yml
+  # OpenCode ships continuously, and a release can move the binary without
+  # changing Morse; a nightly run is what catches that before a user does.
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Per install method, so the matrix legs do not cancel each other.
+    concurrency:
+      group: opencode-install-${{ github.workflow }}-${{ matrix.name }}
+      cancel-in-progress: true
+    strategy:
+      # One install method breaking must not hide the state of the others.
+      fail-fast: false
+      matrix:
+        include:
+          # OpenCode's own installer. Handles its own PATH on CI: under
+          # GITHUB_ACTIONS it appends ~/.opencode/bin to GITHUB_PATH itself.
+          - name: install.sh — Ubuntu
+            os: ubuntu-latest
+            install: script
+          - name: install.sh — macOS arm64
+            os: macos-latest
+            install: script
+          # npm: symlink into node_modules on POSIX, .cmd/.ps1 shims on Windows.
+          - name: npm — Ubuntu
+            os: ubuntu-latest
+            install: npm
+          - name: npm — macOS arm64
+            os: macos-latest
+            install: npm
+          - name: npm — Windows
+            os: windows-latest
+            install: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      # OpenCode itself needs Node at runtime, and the check is exercised from Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # `--ignore-scripts`: this job never runs the UI or a host, so it needs
+      # none of their install scripts.
+      - name: Install Morse's dependencies
+        run: npm ci --ignore-scripts
+
+      # The check runs from `dist`, exactly as the extension runs it. Only
+      # the libraries are needed; the UI and the hosts are irrelevant here.
+      - name: Build the adapter
+        run: npm run build:libs
+
+      - name: Install OpenCode via install.sh
+        if: matrix.install == 'script'
+        shell: bash
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Install OpenCode via npm
+        if: matrix.install == 'npm'
+        run: npm install -g --ignore-scripts @opencode/cli
+
+      # `--dump` prints the entry, its realpath and the start of the shim on
+      # success too: when a layout changes, the log already shows what changed.
+      # No `shell:` here: the `shell` keyword cannot read `matrix`, and `node`
+      # runs the same in the platform default (bash on Unix, pwsh on Windows).
+      - name: Verify Morse reads the installed OpenCode
+        run: node scripts/check-opencode-coverage.mjs --dump
