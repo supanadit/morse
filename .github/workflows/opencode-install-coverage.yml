@@ -154,7 +154,7 @@ jobs:
           echo "PNPM_HOME=$PNPM_HOME" >> "$GITHUB_ENV"
           echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
           export PATH="$PNPM_HOME/bin:$PATH"
-          pnpm add -g @opencode/cli
+          pnpm add -g --allow-build=@opencode/cli @opencode/cli
 
       - name: Install OpenCode via pnpm (Windows)
         if: matrix.install == 'pnpm-win'
@@ -169,7 +169,7 @@ jobs:
           "PNPM_HOME=$env:PNPM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "$env:PNPM_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           $env:PATH = "$env:PNPM_HOME\bin;$env:PATH"
-          pnpm add -g @opencode/cli
+          pnpm add -g --allow-build=@opencode/cli @opencode/cli
 
       - name: Install OpenCode via bun
         if: matrix.install == 'bun'
@@ -178,7 +178,7 @@ jobs:
           curl -fsSL https://bun.sh/install | bash
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.bun/bin:$PATH"
-          bun add -g @opencode/cli
+          bun add -g --trust @opencode/cli
 
       - name: Install OpenCode via bun (Windows)
         if: matrix.install == 'bun-win'
@@ -187,7 +187,7 @@ jobs:
           Invoke-RestMethod -Uri https://bun.sh/install.ps1 | Invoke-Expression
           "$env:USERPROFILE\.bun\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
-          bun add -g @opencode/cli
+          bun add -g --trust @opencode/cli
 
       - name: Install OpenCode via sudo npm
         if: matrix.install == 'sudo-npm'
@@ -207,9 +207,13 @@ jobs:
           if [ "$(uname)" = "Darwin" ]; then PROFILE="$HOME/.zshrc"; else PROFILE="$HOME/.bashrc"; fi
           touch "$PROFILE"
           echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$PROFILE"
-          # Plus the login-profile file, in case this image's chain does not
-          # source the rc from the profile (stock Ubuntu does; others may not).
-          if [ "$(uname)" != "Darwin" ]; then echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"; fi
+          # Plus the login-profile files: bash -lic reads the first existing of
+          # ~/.bash_profile, ~/.bash_login, ~/.profile (only stock Ubuntu
+          # chains .bashrc from .profile), so cover the whole precedence chain.
+          if [ "$(uname)" != "Darwin" ]; then
+            echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"
+            echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.bash_profile"
+          fi
           grep -n custom-tools "$PROFILE"
 
       # `--dump` prints the entry, its realpath and the start of the shim on

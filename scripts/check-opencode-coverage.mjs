@@ -101,10 +101,19 @@ async function main() {
       encoding: 'utf8',
       timeout: 30_000,
     });
+    // Report status/signal/stderr, not just stdout: a quarantined, arch
+    // mismatched or root-owned binary dies silently, and the log should say
+    // how (a Gatekeeper SIGKILL reads very differently from a missing exec
+    // bit or a stub that prints to stderr).
     check(
       'opencode --version runs and reports a version',
       version.status === 0 && (version.stdout ?? '').trim().length > 0,
-      () => (version.stdout ?? version.stderr ?? '').trim().split('\n')[0] ?? '(no output)',
+      () => {
+        const first = (text) => (text ?? '').trim().split('\n')[0] ?? '(no output)';
+        const error = version.error !== undefined ? ` error=${version.error.message}` : '';
+        const signal = version.signal !== undefined && version.signal !== null ? ` signal=${version.signal}` : '';
+        return `status=${version.status}${signal}${error} stdout=${first(version.stdout)} stderr=${first(version.stderr)}`;
+      },
     );
   }
 

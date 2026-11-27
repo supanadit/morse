@@ -248,9 +248,13 @@ jobs:
           if [ "$(uname)" = "Darwin" ]; then PROFILE="$HOME/.zshrc"; else PROFILE="$HOME/.bashrc"; fi
           touch "$PROFILE"
           echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$PROFILE"
-          # Plus the login-profile file, in case this image's chain does not
-          # source the rc from the profile (stock Ubuntu does; others may not).
-          if [ "$(uname)" != "Darwin" ]; then echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"; fi
+          # Plus the login-profile files: bash -lic reads the first existing of
+          # ~/.bash_profile, ~/.bash_login, ~/.profile (only stock Ubuntu
+          # chains .bashrc from .profile), so cover the whole precedence chain.
+          if [ "$(uname)" != "Darwin" ]; then
+            echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"
+            echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.bash_profile"
+          fi
           grep -n custom-tools "$PROFILE"
 
       # `--dump` prints the entry, its realpath and the start of the shim on
