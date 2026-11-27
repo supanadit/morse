@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { fileGlyph } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
+import { UnreadBots } from '../../state/unread-bots';
 import { UnreadSessions } from '../../state/unread-sessions';
 import { Dialog } from '../../ui/dialog/dialog';
 import { WorkspaceTabs, type WorkspaceTab } from '../../state/workspace-tabs';
@@ -42,9 +43,14 @@ export class TabStrip {
   private readonly tabs = inject(WorkspaceTabs);
   private readonly morse = inject(MorseService);
   private readonly unread = inject(UnreadSessions);
+  private readonly unreadBots = inject(UnreadBots);
 
   protected hasUnread(id: string): boolean {
     return this.unread.has(id);
+  }
+
+  protected hasBotUnread(id: string): boolean {
+    return this.unreadBots.has(id);
   }
 
   protected readonly items = this.tabs.tabs;
@@ -168,6 +174,16 @@ export class TabStrip {
     return state.sessionId === id && state.streaming;
   }
 
+  /** True while a bot is answering in that room, whatever tab is in front. */
+  protected isBotRunning(id: string): boolean {
+    try {
+      const state = this.morse.bot.routing()[id];
+      return state !== undefined && (state.active.length > 0 || state.queued.length > 0);
+    } catch {
+      return false;
+    }
+  }
+
   protected title(tab: WorkspaceTab): string {
     return tab.kind === 'file' ? tab.path : tab.title;
   }
@@ -211,9 +227,11 @@ export class TabStrip {
     return slash <= 0 ? '' : tab.path.slice(0, slash);
   }
 
-  protected select(id: string): void {
-    this.unread.clear(id);
-    this.tabs.select(id);
+  protected select(tab: WorkspaceTab): void {
+    this.unread.clear(tab.id);
+    // Clearing is idempotent, so both stores hear every open — no kind switch.
+    this.unreadBots.clear(tab.id);
+    this.tabs.select(tab.id);
   }
 
   protected close(id: string, event: Event): void {
@@ -281,9 +299,10 @@ export class TabStrip {
   }
 
   /** Opens the tab the drawer row names, and gets the drawer out of the way. */
-  protected pick(id: string): void {
-    this.unread.clear(id);
-    this.tabs.select(id);
+  protected pick(tab: WorkspaceTab): void {
+    this.unread.clear(tab.id);
+    this.unreadBots.clear(tab.id);
+    this.tabs.select(tab.id);
     this.closeSheet();
   }
 

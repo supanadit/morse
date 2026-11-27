@@ -15,7 +15,9 @@
   (click)="onHandleClick()"
 >
   @if (activeTab(); as tab) {
-    @if (tab.kind === 'session' && isRunning(tab.id)) {
+    @if (
+      (tab.kind === 'session' && isRunning(tab.id)) || (tab.kind === 'bot' && isBotRunning(tab.id))
+    ) {
       <span class="live" aria-hidden="true"></span>
     } @else {
       <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
@@ -51,19 +53,21 @@
         [class.active]="tab.id === activeId()"
         [class.parent]="tab.kind === 'session' && tab.id === activeChipOwner()"
         [class.subagent]="isSubagent(tab)"
-        [class.running]="tab.kind === 'session' && isRunning(tab.id)"
-        [class.unread]="tab.kind === 'session' && hasUnread(tab.id)"
+        [class.running]="(tab.kind === 'session' && isRunning(tab.id)) || (tab.kind === 'bot' && isBotRunning(tab.id))"
+        [class.unread]="(tab.kind === 'session' && hasUnread(tab.id)) || (tab.kind === 'bot' && hasBotUnread(tab.id))"
         [attr.aria-selected]="tab.id === activeId()"
         [title]="title(tab)"
-        (click)="select(tab.id)"
-        (keydown.enter)="select(tab.id)"
-        (keydown.space)="select(tab.id)"
+        (click)="select(tab)"
+        (keydown.enter)="select(tab)"
+        (keydown.space)="select(tab)"
         (contextmenu)="openMenu($event, tab.id)"
         (auxclick)="onAuxClick(tab.id, $event)"
       >
-        @if (tab.kind === 'session' && isRunning(tab.id)) {
+        @if ((tab.kind === 'session' && isRunning(tab.id)) || (tab.kind === 'bot' && isBotRunning(tab.id))) {
           <span class="live" aria-hidden="true"></span>
-        } @else if (tab.kind === 'session' && hasUnread(tab.id)) {
+        } @else if (
+          (tab.kind === 'session' && hasUnread(tab.id)) || (tab.kind === 'bot' && hasBotUnread(tab.id))
+        ) {
           <span class="unread-dot" aria-hidden="true"></span>
         } @else {
           <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
@@ -156,11 +160,14 @@
           [class.subagent]="isSubagent(tab)"
           [attr.aria-selected]="tab.id === activeId()"
           [title]="title(tab)"
-          (click)="pick(tab.id)"
-          (keydown.enter)="pick(tab.id)"
-          (keydown.space)="pick(tab.id)"
+          (click)="pick(tab)"
+          (keydown.enter)="pick(tab)"
+          (keydown.space)="pick(tab)"
         >
-          @if (tab.kind === 'session' && isRunning(tab.id)) {
+          @if (
+            (tab.kind === 'session' && isRunning(tab.id)) ||
+            (tab.kind === 'bot' && isBotRunning(tab.id))
+          ) {
             <span class="live" aria-hidden="true"></span>
           } @else {
             <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
