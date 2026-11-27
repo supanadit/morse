@@ -1398,7 +1398,8 @@ export class MorseSessionFactory {
    * management is not offered yet — even admins manage only their own keys —
    * so naming another `userId` is refused rather than honored. The home is
    * the member's workspace (`/home/<username>` on OS-user hosts), falling
-   * back to the host workspace; on OS-user hosts that directory is the SSH home.
+   * back to the machine user's real home on a host-native install; on
+   * OS-user hosts that directory is the SSH home.
    */
   private async keyHomeFor(
     args: Record<string, unknown> | undefined,
@@ -1412,7 +1413,7 @@ export class MorseSessionFactory {
     const path =
       this.config.multiuser && this.config.workspaceRoot !== undefined
         ? this.homeDirFor(username)
-        : (this.fenceFor(user) ?? this.config.workspace.cwd);
+        : (this.fenceFor(user) ?? this.nativeHome(this.config.workspace.cwd));
     mkdirSync(path, { recursive: true });
     return { path, username };
   }
@@ -1428,8 +1429,13 @@ export class MorseSessionFactory {
     if (this.config.multiuser && this.config.workspaceRoot !== undefined) {
       return fenced;
     }
+    return this.nativeHome(fenced);
+  }
+
+  /** The machine user's real home on a host-native install, `fallback` if unknown. */
+  private nativeHome(fallback: string): string {
     const home = process.env.HOME ?? '';
-    return home.length > 0 ? home : fenced;
+    return home.length > 0 ? home : fallback;
   }
 
   /**

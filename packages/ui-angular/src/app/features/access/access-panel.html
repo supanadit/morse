@@ -53,10 +53,12 @@
     } @empty {
       <p class="empty">No SSH key yet — generate one below or run <code>ssh-keygen -t ed25519</code> in a terminal.</p>
     }
-    <div class="row">
-      <button type="button" class="secondary" (click)="generateSsh('ed25519')" [disabled]="busy()">Generate ed25519</button>
-      <button type="button" class="secondary" (click)="generateSsh('rsa')" [disabled]="busy()">Generate RSA</button>
-    </div>
+    @if ((ssh()?.keys ?? []).length === 0) {
+      <div class="row">
+        <button type="button" class="secondary" (click)="generateSsh('ed25519')" [disabled]="busy()">Generate ed25519</button>
+        <button type="button" class="secondary" (click)="generateSsh('rsa')" [disabled]="busy()">Generate RSA</button>
+      </div>
+    }
   }
 
   <h3>authorized_keys</h3>
