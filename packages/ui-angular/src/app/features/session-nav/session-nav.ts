@@ -377,6 +377,7 @@ export class SessionNav {
   protected readonly updateStatus = this.update.status;
   protected readonly sessionActivity = this.morse.sessionActivity;
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
+  protected readonly workspace = computed(() => this.morse.workspace());
 
   /** The browser host opens a folder modal for "New chat" (see ProjectPicker). */
   private readonly directoryPicker = computed(
@@ -653,6 +654,11 @@ export class SessionNav {
 
   /** A project's own menu: the only project operation is deleting its sessions. */
   protected openProjectMenu(event: MouseEvent, path: string): void {
+    // Multi-user hosts give each login a fixed shelf ("Your Workspaces"): no
+    // delete menu, so it cannot be removed. Single-user keeps its behavior.
+    if (this.morse.capabilities()?.multiuser === true && path === this.workspace().cwd) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const group = this.visibleGroups().find((entry) => entry.path === path);
@@ -737,6 +743,10 @@ export class SessionNav {
   }
 
   protected deleteProjectNow(open: ProjectMenu): void {
+    if (this.morse.capabilities()?.multiuser === true && open.path === this.workspace().cwd) {
+      this.closeProjectMenu();
+      return;
+    }
     this.closeProjectMenu();
     this.tabs.forgetProject(open.path);
     this.morse.deleteProject(open.path);

@@ -38,6 +38,15 @@ const MORSE_PI_PATH = env.get("MORSE_PI_PATH", "/opt/engines/bin/pi");
 const MORSE_OPENCODE_BIN = env.get("MORSE_OPENCODE_BIN", "/opt/engines/opencode/opencode");
 const MORSE_ENGINE = env.get("MORSE_ENGINE", "");
 
+// Real OS users for every login (`useradd` + SSH): on in this image, off on
+// host installs. Each login becomes a Linux user homed at
+// `/home/<username>` (a symlink into the workspaces volume) with the Morse
+// password, provisioned by the server on first login.
+const MORSE_OS_USERS = env.bool("MORSE_OS_USERS", true);
+
+// SSH into your own workspace: loopback-only in the quadlet, like `:4399`.
+const MORSE_SSH_PORT = env.get("MORSE_SSH_PORT", "2222");
+
 // The application user the server (and every engine it spawns) runs as. ezx
 // stays PID 1; this is the privilege drop, mirroring the postgres container's
 // `process.user`/`process.group` nodes.
@@ -53,6 +62,8 @@ module.exports = {
 	MORSE_HOST,
 	MORSE_PORT,
 	MORSE_MULTIUSER,
+	MORSE_OS_USERS,
+	MORSE_SSH_PORT,
 	MORSE_WORKSPACE_ROOT,
 	MORSE_PG_HOST,
 	MORSE_PG_PORT,

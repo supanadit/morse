@@ -28,6 +28,7 @@ import {
   PI_INSTALL_COMMAND,
 } from '@morse/integration-pi';
 import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
+import { ensureOsUser, ownOsHome } from '../os-users.js';
 import {
   HostSessionController,
   SessionTranscriptStore,
@@ -123,6 +124,8 @@ interface UserBundle {
   detachTranscripts: () => void;
   /** The project fence for this user: their workspace root when fenced. */
   policy: ServerProjectPolicy;
+  /** The login role this bundle was built for; a role change rebuilds it. */
+  role: AuthUser['role'];
   /**
    * This reader's lens over the shared bot service (Slack semantics: their
    * own DM rooms). Undefined with no bot service; the service itself on
@@ -255,22 +258,39 @@ export class MorseSessionFactory {
   private bundleFor(user: AuthUser): UserBundle {
     const userId = user.id;
     const existing = this.bundles.get(userId);
-    if (existing !== undefined) {
+    // A role change rebuilds the bundle: a demoted admin must lose the global
+    // policy at once, not keep it until the host restarts.
+    if (existing !== undefined && existing.role === user.role) {
       return existing;
+    }
+    if (existing !== undefined) {
+      existing.detachTranscripts();
+      void existing.registry.dispose().catch(() => undefined);
+      this.bundles.delete(userId);
     }
     if (this.db === undefined) {
       throw new UnsupportedByHostError('Multi-user mode needs PostgreSQL, which is not connected.');
     }
-    // Own workspace, own fence: when `MORSE_WORKSPACE_ROOT` is set the user
-    // works under `<root>/<username>` (created on demand) and the policy
-    // narrows to it, so git and terminals cannot cross into another user's
-    // tree. Unset keeps the host's global workspace for everyone.
-    const fenced = this.config.workspaceRoot !== undefined;
-    const cwd = fenced ? join(this.config.workspaceRoot as string, user.username) : this.config.workspace.cwd;
-    if (fenced) {
+    // Own workspace, own fence: when `MORSE_WORKSPACE_ROOT` is set every user
+    // works under `<root>/<username>` (created on demand). Regular users are
+    // narrowed to it, so sessions, terminals, git and the folder picker cannot
+    // cross into another user's tree. Admins keep the global policy and may go
+    // anywhere. Unset keeps the host's global workspace for everyone.
+    const homed = this.config.workspaceRoot !== undefined;
+    const admin = user.role === 'admin';
+    const fenced = homed && !admin;
+    const cwd = homed ? join(this.config.workspaceRoot as string, user.username) : this.config.workspace.cwd;
+    if (homed) {
       mkdirSync(cwd, { recursive: true });
     }
-    const workspace = fenced ? { cwd, name: user.username } : this.config.workspace;
+    const workspace = homed ? { cwd, name: 'Your Workspaces' } : this.config.workspace;
+    // Pre-OS-user accounts (or a recreated container over a kept volume) get
+    // their Linux user and home ownership on first login; the password follows
+    // on their next password set, since only that carries the plaintext.
+    if (homed) {
+      ensureOsUser(user.username, () => undefined);
+      ownOsHome(user.username, cwd, (message) => this.logger.warn(message));
+    }
     const policy = fenced ? new ServerProjectPolicy([cwd]) : this.policy;
     const userRouter = new AgentRouter({
       store: new PgSessionStore(this.db, userId),
@@ -329,6 +349,7 @@ export class MorseSessionFactory {
       mcpWatch,
       detachTranscripts,
       policy,
+      role: user.role,
       botPort: this.bot === undefined ? undefined : new ScopedBotPort(this.bot, user),
     };
     this.bundles.set(userId, bundle);
@@ -341,6 +362,21 @@ export class MorseSessionFactory {
   }
 
   /**
+   * The fence a regular login user lives behind in multi-user mode: their own
+   * `<root>/<username>`. Admins have none (the global policy decides), and
+   * without `MORSE_WORKSPACE_ROOT` nobody is fenced.
+   */
+  private fenceFor(user?: AuthUser | null): string | undefined {
+    if (
+      user === undefined || user === null || user.role === 'admin' ||
+      this.config.workspaceRoot === undefined
+    ) {
+      return undefined;
+    }
+    return join(this.config.workspaceRoot, user.username);
+  }
+
+  /**
    * The host-owned file directory for a connection: the shared `<MORSE_HOME>`
    * on single-user hosts, that user's directory once `multiuser` is on.
    */
@@ -350,16 +386,25 @@ export class MorseSessionFactory {
 
   /**
    * Namespaces terminal ids per user, so one user's bottom panel can never
-   * attach to (or close) another user's shell by id.
+   * attach to (or close) another user's shell by id — and enforces that
+   * user's fence, so a client-named cwd outside it never spawns. The shared
+   * backend still owns the processes; this is only a per-connection lens.
    */
-  private scopedTerminal(userId: string): TerminalBackend | undefined {
+  private scopedTerminal(userId: string, policy: ServerProjectPolicy): TerminalBackend | undefined {
     const backend = this.terminal;
     if (backend === undefined) {
       return undefined;
     }
     const prefix = `${userId}:`;
     return {
-      attach: (terminalId, options, sink) => backend.attach(prefix + terminalId, options, sink),
+      attach: (terminalId, options, sink) => {
+        if (!policy.canOpen(options.cwd)) {
+          throw new UnsupportedByHostError(
+            `Morse is not allowed to run a terminal in ${options.cwd}.`,
+          );
+        }
+        return backend.attach(prefix + terminalId, options, sink);
+      },
       close: (terminalId) => backend.close(prefix + terminalId),
     };
   }
@@ -560,7 +605,7 @@ export class MorseSessionFactory {
           bundle?.policy ?? this.policy,
         ),
       // The bottom panel's shell, namespaced per user when `multiuser` is on.
-      terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId),
+      terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId, bundle?.policy ?? this.policy),
       takeTerminalCommand: (terminalId) => {
         const command = this.pendingTerminalCommands.get(terminalId);
         this.pendingTerminalCommands.delete(terminalId);
@@ -680,13 +725,31 @@ export class MorseSessionFactory {
       case 'listDirectories': {
         // Feeds the frontend's "New session" folder modal. Browsing is harmless,
         // but the chosen folder still has to pass the policy before a session
-        // may run there, so the result says so (`canOpen`).
+        // may run there, so the result says so (`canOpen`). A fenced regular
+        // user never sees outside their own workspace: an outside path (or no
+        // path) lists the fence, the shortcuts stay inside it, and the way up
+        // stops at its root.
         const requested = typeof args?.path === 'string' ? args.path : undefined;
-        const listing = await browseDirectory(requested, {
-          roots: policy.allowList,
-          defaultPath: this.registry.defaultWorkspace.cwd,
+        const fence = this.fenceFor(user);
+        const start =
+          fence !== undefined && (requested === undefined || !policy.canOpen(requested))
+            ? fence
+            : requested;
+        const listing = await browseDirectory(start, {
+          roots: fence !== undefined ? [fence] : policy.allowList,
+          defaultPath: fence ?? this.registry.defaultWorkspace.cwd,
         });
-        return { ...listing, canOpen: policy.canOpen(listing.path) };
+        const parent =
+          fence !== undefined &&
+          listing.parent !== undefined &&
+          !policy.canOpen(listing.parent)
+            ? undefined
+            : listing.parent;
+        const roots =
+          fence === undefined
+            ? listing.roots
+            : listing.roots.filter((root) => policy.canOpen(root.path));
+        return { ...listing, parent, roots, canOpen: policy.canOpen(listing.path) };
       }
       case 'readWorkbench': {
         // The shell layout the reader left behind. Read-only and host-scoped —

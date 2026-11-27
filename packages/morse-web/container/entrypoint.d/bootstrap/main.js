@@ -13,6 +13,8 @@ const {
 	MORSE_PORT,
 	MORSE_WORKSPACE_ROOT,
 	MORSE_MULTIUSER,
+	MORSE_OS_USERS,
+	MORSE_SSH_PORT,
 	MORSE_OPENCODE_BIN,
 	APP_USER,
 	APP_GROUP,
@@ -37,6 +39,10 @@ function setupDirectories() {
 	if (MORSE_MULTIUSER && MORSE_WORKSPACE_ROOT) {
 		fs.ensureDir(MORSE_WORKSPACE_ROOT, { mode: 0o755 });
 		fs.chownRecursive(MORSE_WORKSPACE_ROOT, owner);
+	}
+	// sshd's privilege-separation directory: tmpfs, so it is recreated every boot.
+	if (MORSE_OS_USERS) {
+		fs.ensureDir("/run/sshd", { mode: 0o755 });
 	}
 }
 
@@ -105,12 +111,65 @@ function morseNode() {
 	return node;
 }
 
+function sshNode() {
+	// Direct SSH into your own workspace: one Linux user per Morse login,
+	// homed at `/home/<username>`, password synced from Morse. Starts after
+	// the server is ready so the host key it generates on boot exists.
+	// Runs as root the way sshd must (it drops privileges per connection).
+	const node = {
+		name: "sshd",
+		process: {
+			binaryPath: "/usr/sbin/sshd",
+			arguments: [
+				"-D",
+				"-p",
+				String(MORSE_SSH_PORT),
+				"-E",
+				`${MORSE_LOGS}/sshd.log`,
+				"-h",
+				`${MORSE_HOME}/ssh/ssh_host_ed25519_key`,
+				"-o",
+				"PasswordAuthentication=yes",
+				"-o",
+				"PubkeyAuthentication=yes",
+				"-o",
+				"PermitRootLogin=no",
+				"-o",
+				"ChallengeResponseAuthentication=no",
+				"-o",
+				"X11Forwarding=no",
+			],
+		},
+		files: [],
+		forwardSignals: ["SIGTERM", "SIGINT"],
+		shutdown: { timeout: 10e9, forceKill: true },
+		dependsOnEdges: [{ name: "morse", waitFor: "ready" }],
+	};
+	node.readiness = {
+		type: "exec",
+		exec: [
+			"/opt/node/bin/node",
+			"-e",
+			`require("net").connect(${JSON.stringify(Number(MORSE_SSH_PORT))}, "127.0.0.1").on("connect", function () { this.end(); process.exit(0); }).on("error", function () { process.exit(1); })`,
+		],
+		interval: 2e9,
+		timeout: 5e9,
+		maxAttempts: 60,
+	};
+	node.health = { readyProbe: node.readiness };
+	return node;
+}
+
 function main() {
 	if (!validateEnvironment()) {
 		throw new Error("Invalid container environment");
 	}
 	setupDirectories();
-	chain.run({ nodes: [opencodeNode(), morseNode()] });
+	const nodes = [opencodeNode(), morseNode()];
+	if (MORSE_OS_USERS) {
+		nodes.push(sshNode());
+	}
+	chain.run({ nodes });
 	log.info("Entrypoint complete");
 }
 

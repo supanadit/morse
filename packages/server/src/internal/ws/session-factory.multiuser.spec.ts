@@ -172,14 +172,36 @@ describe('MorseSessionFactory multi-user bundles', () => {
         type: 'host/command',
         payload: { requestId: 'f1', command: 'listDirectories', args: { path: '/' } },
       });
+      // Admins keep the global policy: the filesystem stays browsable.
       const outside = messages.at(-1) as unknown as { payload: { data: { canOpen: boolean } } };
-      expect(outside.payload.data.canOpen).toBe(false);
+      expect(outside.payload.data.canOpen).toBe(true);
       await controller.handleClientMessage({
         type: 'host/command',
         payload: { requestId: 'f2', command: 'listDirectories', args: { path: join(root, 'adit') } },
       });
       const inside = messages.at(-1) as unknown as { payload: { data: { canOpen: boolean } } };
       expect(inside.payload.data.canOpen).toBe(true);
+
+      // A regular user is fenced: `/` clamps back to their own workspace, and
+      // the shortcuts never leave it.
+      const bobMessages: HostToClientMessage[] = [];
+      const forBob = fenced.createFor((message) => bobMessages.push(message), {
+        user: userOf(bob.id, 'regular', 'bob'),
+      });
+      await forBob.handleClientMessage({
+        type: 'host/command',
+        payload: { requestId: 'f3', command: 'listDirectories', args: { path: '/' } },
+      });
+      const clamped = bobMessages.at(-1) as unknown as {
+        payload: { data: { path: string; parent?: string; roots: { path: string }[]; canOpen: boolean } };
+      };
+      expect(clamped.payload.data.path).toBe(join(root, 'bob'));
+      expect(clamped.payload.data.canOpen).toBe(true);
+      expect(clamped.payload.data.parent).toBeUndefined();
+      for (const shortcut of clamped.payload.data.roots) {
+        expect(shortcut.path.startsWith(join(root, 'bob'))).toBe(true);
+      }
+      await forBob.dispose().catch(() => undefined);
       await controller.dispose().catch(() => undefined);
       await fenced.disposeBundles().catch(() => undefined);
     } finally {

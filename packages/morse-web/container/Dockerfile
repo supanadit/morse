@@ -159,9 +159,18 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --prefix /tmp/rt --wo
 COPY packages/morse-web/container/entrypoint.d /opt/morse/entrypoint.d
 
 # The application user: ezx stays PID 1 and drops privileges per node, so the
-# server (and every engine it spawns) never runs as root.
-RUN apt-get update && apt-get install -y --no-install-recommends passwd && rm -rf /var/lib/apt/lists/* \
+# server (and every engine it spawns) never runs as root. `/home` is a symlink
+# into the single workspaces volume: every login user is also a Linux user
+# whose home is `/home/<username>`, so one volume carries all trees and
+# `MORSE_WORKSPACE_ROOT` needs no second mount.
+RUN apt-get update && apt-get install -y --no-install-recommends passwd openssh-server sudo && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /workspaces \
+    && rm -rf /home \
+    && ln -s /workspaces /home \
     && /usr/sbin/useradd --system --create-home --home-dir /home/morse --shell /usr/sbin/nologin morse \
+    && printf '%s\n' 'morse ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/chpasswd, /usr/sbin/userdel, /usr/bin/chown, /usr/bin/chmod' > /etc/sudoers.d/morse-os-users \
+    && chmod 0440 /etc/sudoers.d/morse-os-users \
+    && sed -i 's/^#\?UMASK.*/UMASK\t002/' /etc/login.defs \
     && mkdir -p /opt/containers/data /opt/containers/config /opt/containers/logs /opt/containers/run /opt/containers/backup /workspaces \
     && chown -R morse:morse /opt/containers /workspaces /opt/morse
 
@@ -172,12 +181,14 @@ ENV MORSE_HOME=/opt/containers/data \
     MORSE_HOST=0.0.0.0 \
     MORSE_PORT=4399 \
     MORSE_MULTIUSER=1 \
+    MORSE_OS_USERS=1 \
+    MORSE_SSH_PORT=2222 \
     MORSE_WORKSPACE_ROOT=/workspaces \
     MORSE_PI_PATH=/opt/engines/bin/pi \
     MORSE_OPENCODE_BIN=/opt/engines/opencode/opencode \
     MORSE_OPENCODE_URL=http://127.0.0.1:4096 \
     PATH=/opt/engines/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 
-EXPOSE 4399
+EXPOSE 4399 2222
 
 ENTRYPOINT ["ezx", "bootstrap", "/opt/morse/entrypoint.d/bootstrap/main.js"]

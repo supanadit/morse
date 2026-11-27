@@ -27,9 +27,9 @@ rebuild only the runtime tail (~13 s). A no-change rebuild takes ~30 s.
 Fresh deployments use the units in `~/.config/containers/systemd`:
 
 - `morse.container` — the server, on the shared `buku.network` so
-  `MORSE_PG_HOST=postgresql` resolves. Loopback-only `:4399`.
-- `morse-data.volume` — `<MORSE_HOME>` (sessions spillover, workbench, logs).
-- `morse-workspaces.volume` — one directory per login user.
+  `MORSE_PG_HOST=postgresql` resolves. Loopback-only `:4399` and `:2222` (SSH).
+- `morse-data.volume` — `<MORSE_HOME>` (sessions spillover, workbench, logs, SSH host key).
+- `morse-workspaces.volume` — one directory per login user, also their SSH homes (`/home` is a symlink to it).
 
 ```bash
 systemctl --user daemon-reload
@@ -44,6 +44,8 @@ created by hand (`CREATE DATABASE morse`), exactly like the other projects.
 | Variable | Default | What it does |
 |---|---|---|
 | `MORSE_MULTIUSER` | `1` | Login gate + per-user session index. The container's reason to exist. |
+| `MORSE_OS_USERS` | `1` | Real Linux user per login (`/home/<username>`, SSH below). Off on host installs. |
+| `MORSE_SSH_PORT` | `2222` | Direct SSH into your own workspace (loopback-only in the quadlet). |
 | `MORSE_WORKSPACE_ROOT` | `/workspaces` | Per-user fence: `<root>/<username>`, created on login. Unset disables fencing. |
 | `MORSE_PG_HOST/PORT/USER/PASSWORD/DATABASE` | `postgresql/5432/postgres/<unset>/morse` | Session index. `MORSE_PG_PASSWORD` has no default — boot fails naming it. |
 | `MORSE_OPENCODE_PASSWORD` | *(required)* | Loopback Basic secret for the bundled OpenCode sidecar. No default — boot fails naming it. |
@@ -58,6 +60,24 @@ created by hand (`CREATE DATABASE morse`), exactly like the other projects.
 - `/opt/morse/server.mjs` + `/opt/morse/ui` — the bundle and the frontend.
 - `/opt/engines/{bin,opencode}` — pi + OpenCode, never on PATH by default.
 - `/opt/containers/{data,config,logs,run,backup}` — `MORSE_HOME` and logs.
-- `/workspaces/<username>` — one tree per login user.
-- ezx stays PID 1 and supervises `opencode` (sidecar, port 4096) then `morse`
-  (gated on the sidecar's readiness probe); both run as `morse:morse`.
+- `/workspaces/<username>` — one tree per login user, and also their SSH home (`/home` is a symlink to `/workspaces`, so two volumes cover everything: workspaces + `MORSE_HOME`).
+- ezx stays PID 1 and supervises `opencode` (sidecar, port 4096), `morse`
+  (gated on the sidecar's readiness probe), then `sshd` (gated on the server,
+  which generates its host key on boot); server and engines run as
+  `morse:morse`, sshd as root the way sshd must.
+
+## SSH (one Linux user per login)
+
+Every Morse login is also a Linux user homed at `/home/<username>` with the
+same password — set it in Morse (first-run wizard, admin panel, or profile)
+and `ssh <username>@<host> -p 2222` lands in your workspace. Admins get one
+too; only their Morse fence is wider, not their home.
+
+- Provisioned on first login (and repaired on every login for pre-existing
+  accounts); the SSH password follows each Morse password set. Accounts that
+  predate this feature SSH-fail until their next password change.
+- Homes are `<user>:morse` mode `2770` with umask 002 on both sides, so agent
+  files and SSH files stay mutually editable. Deleting the Morse user drops
+  the login but keeps the home (their data).
+- Ports to publish: `:4399` (app) + `:2222` (SSH), both loopback-only in the
+  quadlet.

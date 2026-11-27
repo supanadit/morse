@@ -979,6 +979,14 @@ export class HostSessionController {
    * storage rules decide what "deleted" means.
    */
   private async deleteProject(path: string): Promise<void> {
+    // Multi-user hosts give each login a fixed shelf ("Your Workspaces"), not a
+    // project the reader added — its sessions are deleted one by one, never as
+    // a group. Single-user default workspaces keep their group delete.
+    const home = this.options.services.registry.defaultWorkspace;
+    if (path === home.cwd && home.name === 'Your Workspaces') {
+      this.fail('Your Workspaces cannot be deleted.', 'Delete its sessions one by one instead.');
+      return;
+    }
     if (path.length === 0 || !this.canOpen(path)) {
       this.fail(
         `Morse is not allowed to delete sessions in ${path}.`,

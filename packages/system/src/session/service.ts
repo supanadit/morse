@@ -633,7 +633,11 @@ export class SessionRegistry {
       }
       projects.set(session.cwd, {
         path: session.cwd,
-        name: baseName(session.cwd),
+        // The default shelf keeps its display name even once it holds
+        // sessions — otherwise baseName would leak the login username.
+        name: session.cwd === this.deps.defaultWorkspace.cwd
+          ? this.deps.defaultWorkspace.name
+          : baseName(session.cwd),
         sessionCount: 1,
         lastUsedAt: session.updatedAt,
       });

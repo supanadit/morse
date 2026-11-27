@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { Knex } from 'knex';
+import { removeOsUser, syncOsUser } from '../internal/os-users.js';
 
 /**
  * The `morse_users` table: login identity and role for multi-user Morse.
@@ -104,9 +105,10 @@ export async function createUser(
   if (username.length === 0) {
     throw new Error('A username is required.');
   }
-  // Usernames become workspace directory names (`<root>/<username>`), so only
-  // portable characters are allowed — no slashes, no dot-dirs, no surprises.
-  if (!/^[a-z0-9._-]+$/.test(username)) {
+  // Usernames become workspace directory names (`<root>/<username>`) and, on
+  // OS-user hosts, Linux usernames too — so portable characters only, nothing
+  // `useradd` refuses (no leading dash, 32 chars max), no dot-dirs.
+  if (!/^[a-z0-9._-]+$/.test(username) || username === '.' || username === '..' || /^-/.test(username) || username.length > 32) {
     throw new Error('A username may only contain a-z, 0-9, dot, underscore and dash.');
   }
   assertPassword(options.password);
@@ -134,6 +136,9 @@ export async function createUser(
     role: user.role,
     created_at: user.createdAt,
   });
+  // Best-effort: the container's SSH login follows the Morse password. A
+  // provisioning failure never fails the signup itself.
+  syncOsUser(user.username, options.password, (message) => console.warn(message));
   return user;
 }
 
@@ -216,6 +221,9 @@ export async function updateUser(
   if (Object.keys(changes).length > 0) {
     await db('morse_users').where({ id }).update(changes);
   }
+  if (patch.password !== undefined) {
+    syncOsUser(existing.username, patch.password, (message) => console.warn(message));
+  }
   return findUserById(db, id);
 }
 
@@ -238,5 +246,7 @@ export async function deleteUser(db: Knex, id: string): Promise<{ deleted: boole
   }
   await db('morse_sessions').where({ user_id: id }).delete();
   await db('morse_users').where({ id }).delete();
+  // The home directory (their data) stays; only the login goes.
+  removeOsUser(target.username, (message) => console.warn(message));
   return { deleted: true };
 }
