@@ -1,6 +1,6 @@
 import { signal, type Signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MorseService } from '../host/morse.service';
 import { ModePrefs } from './mode-prefs';
 import { UnreadSessions } from './unread-sessions';
@@ -36,6 +36,8 @@ function setup(opts: {
   const user = signal(opts.user === undefined ? null : { id: opts.user });
   const loaded = signal(opts.complete ?? false);
   const hasMore = signal<Record<string, boolean>>({});
+  const epoch = signal(1);
+  const requestSessions = vi.fn();
   TestBed.configureTestingModule({
     providers: [
       {
@@ -47,13 +49,15 @@ function setup(opts: {
           user: user as Signal<{ id: string } | null>,
           sessionsLoaded: loaded as Signal<boolean>,
           sessionHasMore: hasMore as Signal<Record<string, boolean>>,
+          hostEpoch: epoch as Signal<number>,
+          requestSessions,
         },
       },
     ],
   });
   const unread = TestBed.inject(UnreadSessions);
   TestBed.tick();
-  return { unread, sessions, state, activity, user, loaded };
+  return { unread, sessions, state, activity, user, loaded, requestSessions };
 }
 
 afterEach(() => {
@@ -112,6 +116,15 @@ describe('UnreadSessions', () => {
       ],
     });
     expect(unread.ids().size).toBe(0);
+  });
+
+  it('fetches the session list on its own so bot mode learns finishes', () => {
+    const { requestSessions, loaded } = setup();
+    // Asked once without any visit to code mode; never again per connection.
+    expect(requestSessions).toHaveBeenCalledTimes(1);
+    loaded.set(true);
+    TestBed.tick();
+    expect(requestSessions).toHaveBeenCalledTimes(1);
   });
 
   it('clears one session without clearing the other', () => {

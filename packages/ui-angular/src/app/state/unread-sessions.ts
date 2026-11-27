@@ -89,8 +89,21 @@ export class UnreadSessions {
   /** True when the scope's stored record existed at load (a returning reader). */
   private returning = false;
 
+  /** hostEpoch values a session list was already requested for. */
+  private listedFor: unknown = null;
+
   constructor() {
     effect(() => {
+      // The session list is only asked for by the code sidebar, so a reader who
+      // never leaves bot mode would never learn a session finished. Ask once
+      // per connection instead — the reply is what catch-up reconciles.
+      if (!this.catalogLoaded()) {
+        const epoch = this.hostEpoch();
+        if (this.listedFor !== epoch) {
+          this.listedFor = epoch;
+          untracked(() => this.requestSessions());
+        }
+      }
       const sessions = this.sessions();
       const active = this.activeId();
       const streaming = this.streamingIds();
@@ -273,6 +286,33 @@ export class UnreadSessions {
       return Object.values(hasMore).every((more) => more === false);
     } catch {
       return false;
+    }
+  }
+
+  /** The catalog arrived at least once; an empty list is real then, not loading. */
+  private catalogLoaded(): boolean {
+    try {
+      return (
+        (this.morse as { sessionsLoaded?: () => boolean }).sessionsLoaded?.() === true
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private hostEpoch(): unknown {
+    try {
+      return (this.morse as { hostEpoch?: () => unknown }).hostEpoch?.();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private requestSessions(): void {
+    try {
+      (this.morse as { requestSessions?: () => void }).requestSessions?.();
+    } catch {
+      // The wire will be there on the next connection; live marks still work.
     }
   }
 
