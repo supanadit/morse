@@ -14,6 +14,8 @@ export interface AuthStatus {
   multiuser: boolean;
   setupRequired: boolean;
   user?: AuthUser;
+  /** Present when an SSO provider is enabled and usable: the login page's second door. */
+  oidc?: { enabled: boolean; displayName: string };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -63,6 +65,14 @@ export class AuthState {
   }
 
   async logout(): Promise<void> {
+    // With SSO on, leave through the provider's own logout: it ends the
+    // provider session too, so the next login can pick a different user
+    // instead of silently reusing the last one. The server ends password
+    // logins locally even then (it knows which door each session used).
+    if (this.status()?.oidc?.enabled === true && typeof location !== 'undefined') {
+      location.href = '/api/auth/oidc/logout';
+      return;
+    }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {

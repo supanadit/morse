@@ -118,6 +118,65 @@ describe('AuthController', () => {
     expect(await db('morse_tokens').select('*')).toHaveLength(0);
   });
 
+  it('ends SSO sessions through the provider logout, password sessions locally', async () => {
+    const { saveOidcConfig } = await import('../../db/oidc-config.js');
+    const { isOidcSession } = await import('../../db/tokens.js');
+    await saveOidcConfig(db, {
+      enabled: true,
+      displayName: 'Keycloak',
+      discoveryUrl: undefined,
+      authUrl: 'https://id.example.com/auth',
+      tokenUrl: 'https://id.example.com/token',
+      userinfoUrl: 'https://id.example.com/userinfo',
+      endSessionUrl: 'https://id.example.com/logout',
+      clientId: 'morse',
+      clientSecret: undefined,
+      scopes: 'openid profile email',
+      allowSignup: true,
+    });
+    const user = await createUser(db, { username: 'adit', password: 'supersecret' });
+    const passwordToken = await createToken(db, user.id);
+    const ssoToken = await createToken(db, user.id, true);
+    expect(await isOidcSession(db, passwordToken)).toBe(false);
+    expect(await isOidcSession(db, ssoToken)).toBe(true);
+
+    const redirecting = () => {
+      const headers: Record<string, string> = {};
+      let target = '';
+      return {
+        headers,
+        setHeader: (name: string, value: string) => {
+          headers[name] = value;
+        },
+        redirect: (url: string) => {
+          target = url;
+        },
+        target: () => target,
+      };
+    };
+
+    // A password login ends at the login page: no provider session to close.
+    const plain = redirecting();
+    await controller.oidcLogout(
+      { headers: { cookie: `morse_token=${passwordToken}`, host: 'localhost:4399' } },
+      plain as never,
+    );
+    expect(plain.target()).toBe('/');
+
+    // An SSO login bounces through the provider's end-session endpoint, with
+    // the way back and the client named — that is what lets the next login
+    // pick a different user instead of reusing the last one.
+    const sso = redirecting();
+    await controller.oidcLogout(
+      { headers: { cookie: `morse_token=${ssoToken}`, host: 'localhost:4399' } },
+      sso as never,
+    );
+    const url = new URL(sso.target());
+    expect(`${url.origin}${url.pathname}`).toBe('https://id.example.com/logout');
+    expect(url.searchParams.get('client_id')).toBe('morse');
+    expect(url.searchParams.get('post_logout_redirect_uri')).toBe('http://localhost:4399/');
+  });
+
   it('adoptLocalRowsToUser is a no-op helper the specs keep honest', async () => {
     expect(await adoptLocalRowsToUser(db, 'nobody')).toBe(0);
   });

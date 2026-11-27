@@ -1,0 +1,134 @@
+/* SSO provider form: same management-page column as Members. */
+:host {
+  display: contents;
+}
+
+.oidc {
+  flex: 1;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 24px 28px 40px;
+  width: 100%;
+  max-width: 720px;
+  box-sizing: border-box;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.head h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.sub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--morse-fg-muted);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--morse-fg-muted);
+}
+
+.env-note {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  background: var(--morse-button-secondary, rgb(128 128 128 / 15%));
+}
+
+.error {
+  color: var(--morse-danger, #e5484d);
+  font-size: 13px;
+}
+
+.notice {
+  color: var(--morse-success, #30a46c);
+  font-size: 13px;
+}
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.field input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--morse-border, rgb(128 128 128 / 30%));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.field .opt {
+  font-style: normal;
+  color: var(--morse-fg-muted);
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.primary {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  color: var(--morse-accent-fg, #fff);
+  background: var(--morse-accent, #7c5cff);
+}
+
+.secondary {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--morse-border, rgb(128 128 128 / 30%));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

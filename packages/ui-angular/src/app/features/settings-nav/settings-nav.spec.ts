@@ -6,6 +6,7 @@ import {
   SETTINGS_GIT_TAB_ID,
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
+  SETTINGS_OIDC_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
 } from '../../state/workspace-tabs';
 import { SettingsNav } from './settings-nav';
@@ -39,9 +40,9 @@ function clickRow(fixture: ComponentFixture<SettingsNav>, label: string): void {
 }
 
 describe('SettingsNav', () => {
-  it('lists Management/Members, Access leaves and Engine/Providers as collapsible sections', () => {
+  it('lists Management/Members/Authentication, Access leaves and Engine/Providers as collapsible sections', () => {
     const fixture = render();
-    expect(labels(fixture)).toEqual(['Management', 'Members', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Management', 'Members', 'Authentication', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
   });
 
   it('shows only the pages a regular member may open, dropping emptied sections', () => {
@@ -59,6 +60,14 @@ describe('SettingsNav', () => {
 
     clickRow(fixture, 'Members');
     expect(tabs.activeId()).toBe(SETTINGS_MEMBERS_TAB_ID);
+  });
+
+  it('opens the Authentication page on leaf click', () => {
+    const fixture = render();
+    const tabs = TestBed.inject(WorkspaceTabs);
+
+    clickRow(fixture, 'Authentication');
+    expect(tabs.activeId()).toBe(SETTINGS_OIDC_TAB_ID);
   });
 
   it('opens the Providers page on leaf click', () => {

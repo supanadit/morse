@@ -125,6 +125,11 @@
       <path d="M5 1.8v3M11 1.8v3M3.2 4.8h9.6v2.4c0 2.6-1.8 4.4-4.8 4.4s-4.8-1.8-4.8-4.4V4.8Z" />
       <path d="M8 11.6v2.6" />
     </symbol>
+    <symbol id="morse-key" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="5.5" cy="8" r="3.2" />
+      <path d="M8.3 8H14M12.2 8v2.4M14 8v1.6" />
+    </symbol>
   </svg>
 
   <!--
@@ -399,6 +404,14 @@
         -->
         <div class="settings-scroll">
           <morse-admin-panel />
+        </div>
+      } @else if (activeSettingsPage() === 'oidc') {
+        <!--
+          The settings menu's Authentication page: the optional SSO provider.
+          Same tab shape as Members, so it survives a trip away and back.
+        -->
+        <div class="settings-scroll">
+          <morse-oidc-panel />
         </div>
       } @else if (activeSettingsPage() === 'access') {
         <!-- Code-split like the prompt editor: out of the initial bundle. -->

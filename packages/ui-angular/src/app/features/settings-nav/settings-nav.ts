@@ -6,13 +6,14 @@ import {
   SETTINGS_GIT_TAB_ID,
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
+  SETTINGS_OIDC_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
 } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
 
 /** Which settings page a leaf opens. Groups carry none — they only fold. */
-type SettingsPage = 'members' | 'access' | 'gpg' | 'git' | 'providers';
+type SettingsPage = 'members' | 'oidc' | 'access' | 'gpg' | 'git' | 'providers';
 
 /**
  * The settings menu: the left column's third face, in front while the rail's
@@ -51,7 +52,7 @@ export class SettingsNav {
     id: string,
     label: string,
     data: SettingsPage,
-    icon: 'admin' | 'plug' | 'lock' | 'tag' | 'git',
+    icon: 'admin' | 'plug' | 'lock' | 'tag' | 'git' | 'key',
     adminOnly: boolean,
   ): TreeNode<SettingsPage> & { adminOnly: boolean } {
     return { id, label, data, icon, kind: 'leaf', children: [], adminOnly };
@@ -73,7 +74,10 @@ export class SettingsNav {
         // Members stays admin-only under Management; a future Profile leaf
         // for everyone would sit beside it with `false` and keep this header
         // for regulars too.
-        leaves: [this.leaf(SETTINGS_MEMBERS_TAB_ID, 'Members', 'members', 'admin', true)],
+        leaves: [
+          this.leaf(SETTINGS_MEMBERS_TAB_ID, 'Members', 'members', 'admin', true),
+          this.leaf(SETTINGS_OIDC_TAB_ID, 'Authentication', 'oidc', 'key', true),
+        ],
       });
     }
     // Every member manages their own SSH/GPG keys — admins and regulars
@@ -144,6 +148,8 @@ export class SettingsNav {
     }
     if (node.data === 'members') {
       this.tabs.openSettingsPage();
+    } else if (node.data === 'oidc') {
+      this.tabs.openOidcPage();
     } else if (node.data === 'access') {
       this.tabs.openAccessPage();
     } else if (node.data === 'gpg') {

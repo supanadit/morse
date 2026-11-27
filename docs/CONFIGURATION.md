@@ -32,6 +32,14 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
 | `MORSE_AUTH_PASSWORD` | unset | When set, every browser-facing route needs this password over HTTP Basic (the browser shows its native login prompt; the WebSocket upgrade reuses the same credentials). The CLI health probe and the bot bus stay open — the latter has its own loopback + token check |
 | `MORSE_AUTH_USERNAME` | unset | Optional user name required alongside `MORSE_AUTH_PASSWORD`; unset means any user name is accepted and the password alone gates |
+| `MORSE_OIDC_ENABLED` | disabled | Turns on the optional generic OIDC/OAuth2 door (`1`/`true`/`on`/`yes`). Any `MORSE_OIDC_*` knob makes the provider env-managed: the admin settings page stays visible but read-only. With none set, an admin configures the same provider on the settings page instead |
+| `MORSE_OIDC_DISPLAY_NAME` | `Single sign-on` | Label of the login page's SSO button |
+| `MORSE_OIDC_DISCOVERY_URL` | unset | The `.well-known/openid-configuration` URL (Keycloak realm URL + `/.well-known/openid-configuration`). Fills auth/token/userinfo endpoints when they are not set explicitly |
+| `MORSE_OIDC_AUTH_URL` / `MORSE_OIDC_TOKEN_URL` / `MORSE_OIDC_USERINFO_URL` | unset | Explicit endpoints, for providers without discovery. All three (or discovery) plus the client id are required |
+| `MORSE_OIDC_END_SESSION_URL` | from discovery when present | Where logout bounces to end the provider session (so the next login can pick a different user). Without one, logout ends the Morse session locally only |
+| `MORSE_OIDC_CLIENT_ID` / `MORSE_OIDC_CLIENT_SECRET` | unset | The provider's client credentials for Morse |
+| `MORSE_OIDC_SCOPES` | `openid profile email` | Scopes requested at login |
+| `MORSE_OIDC_ALLOW_SIGNUP` | enabled | First SSO login creates the account (`0`/`false`/`off` restricts SSO to existing members). Linked by provider subject first, email otherwise — enabling SSO never strands a local account |
 | `MORSE_ENGINE` | `pi` | Engine new sessions start in: `pi` or `opencode` (an unreachable engine falls back to pi) |
 | `MORSE_OPENCODE_URL` | unset | Attach to a running OpenCode server instead of spawning one |
 | `MORSE_OPENCODE_PASSWORD` | unset | The password that server printed; required with a URL |

@@ -22,6 +22,7 @@ export class AuthScreen {
   private readonly auth = inject(AuthState);
 
   protected readonly setupRequired = computed(() => this.auth.status()?.setupRequired === true);
+  protected readonly ssoName = computed(() => this.auth.status()?.oidc?.displayName ?? null);
   protected readonly working = this.auth.working;
   protected readonly error = this.auth.error;
   protected readonly username = signal('');

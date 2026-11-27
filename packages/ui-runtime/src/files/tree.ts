@@ -105,6 +105,7 @@ export type IconKind =
   | 'tag'
   | 'admin'
   | 'plug'
+  | 'key'
   | 'settings';
 
 /**
@@ -130,6 +131,7 @@ const ICON_SYMBOL: Record<IconKind, true> = {
   tag: true,
   admin: true,
   plug: true,
+  key: true,
   settings: true,
 };
 

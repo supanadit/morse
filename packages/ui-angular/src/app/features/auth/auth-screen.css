@@ -184,6 +184,39 @@
   cursor: default;
 }
 
+/* The SSO door: a divider and a link that reads as a second button. The href
+ * carries the browser to the provider; no client state travels with it. */
+.sso-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 12px;
+  color: var(--morse-fg-muted);
+  font-size: 13px;
+}
+.sso-divider::before,
+.sso-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--morse-border, rgb(128 128 128 / 30%));
+}
+.sso-button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  text-decoration: none;
+  padding: 11px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--morse-fg);
+  background: var(--morse-button-secondary, rgb(128 128 128 / 25%));
+}
+.sso-button:hover {
+  background: var(--morse-button-secondary-hover, rgb(128 128 128 / 35%));
+}
+
 @media (max-width: 640px) {
   .auth-page {
     grid-template-columns: 1fr;

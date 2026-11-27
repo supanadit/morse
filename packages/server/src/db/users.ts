@@ -166,6 +166,70 @@ export async function findUserById(db: Knex, id: string): Promise<MorseUser | un
   return row === undefined ? undefined : toUser(row as UserRow);
 }
 
+/** SSO lookup: the user already linked to this provider subject, if any. */
+export async function findUserByOidc(
+  db: Knex,
+  sub: string,
+  issuer: string,
+): Promise<MorseUser | undefined> {
+  const row = await db('morse_users').where({ oidc_sub: sub, oidc_issuer: issuer }).first();
+  return row === undefined ? undefined : toUser(row as UserRow);
+}
+
+/** Link target for JIT provisioning: the user holding this email, if any. */
+export async function findUserByEmail(db: Knex, email: string): Promise<MorseUser | undefined> {
+  const normalized = email.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  const row = await db('morse_users').where({ email: normalized }).first();
+  return row === undefined ? undefined : toUser(row as UserRow);
+}
+
+/** Records the provider link after a successful SSO login. */
+export async function setOidcLink(db: Knex, id: string, sub: string, issuer: string): Promise<void> {
+  await db('morse_users').where({ id }).update({ oidc_sub: sub, oidc_issuer: issuer });
+}
+
+/**
+ * First-login provisioning for SSO: creates a regular user (or the first admin
+ * when the table is empty, like `createUser`) with an unusable random password
+ * — the provider owns the credential, local login stays closed until an admin
+ * sets one. Returns undefined when the username is taken by someone else.
+ */
+export async function createOidcUser(
+  db: Knex,
+  options: { username: string; name: string; email: string; sub: string; issuer: string },
+): Promise<MorseUser | undefined> {
+  const existing = await db('morse_users')
+    .where({ username: normalizeUsername(options.username) })
+    .first();
+  if (existing !== undefined) {
+    return undefined;
+  }
+  const first = (await countUsers(db)) === 0;
+  const user: MorseUser = {
+    id: randomUUID(),
+    username: normalizeUsername(options.username),
+    name: options.name.slice(0, 120) || options.username,
+    email: options.email,
+    role: first ? 'admin' : 'regular',
+    createdAt: Date.now(),
+  };
+  await db('morse_users').insert({
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    email: user.email,
+    password_hash: hashPassword(randomUUID() + randomUUID()),
+    role: user.role,
+    created_at: user.createdAt,
+    oidc_sub: options.sub,
+    oidc_issuer: options.issuer,
+  });
+  return user;
+}
+
 /** Every user, newest last, without password hashes. */
 export async function listUsers(db: Knex): Promise<MorseUser[]> {
   const rows = await db('morse_users')

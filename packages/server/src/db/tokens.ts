@@ -19,7 +19,7 @@ function hashToken(token: string): string {
 }
 
 /** Mints a login session for a user. Returns the raw token for the cookie. */
-export async function createToken(db: Knex, userId: string): Promise<string> {
+export async function createToken(db: Knex, userId: string, viaOidc = false): Promise<string> {
   const token = randomBytes(TOKEN_BYTES).toString('hex');
   const now = Date.now();
   await db('morse_tokens').insert({
@@ -27,6 +27,7 @@ export async function createToken(db: Knex, userId: string): Promise<string> {
     user_id: userId,
     created_at: now,
     expires_at: now + TOKEN_TTL_MS,
+    oidc: viaOidc ? 1 : 0,
   });
   return token;
 }
@@ -55,6 +56,20 @@ export async function resolveToken(db: Knex, token: string): Promise<AuthUser | 
         name: user.name,
         email: user.email,
       };
+}
+
+/** True when this login session came through SSO (its logout bounces via the provider). Unknown or expired tokens read as local logins. */
+export async function isOidcSession(db: Knex, token: string): Promise<boolean> {
+  try {
+    const row = await db('morse_tokens').where({ token_hash: hashToken(token) }).first();
+    if (row === undefined) {
+      return false;
+    }
+    return Number((row as { oidc?: string | number }).oidc ?? 0) === 1;
+  } catch {
+    // A host whose schema predates the flag: plain logout, never a crash.
+    return false;
+  }
 }
 
 /** Ends one login session. True when a row was actually revoked. */

@@ -87,6 +87,53 @@ const MIGRATIONS: Migration[] = [
       });
     },
   },
+  {
+    version: 4,
+    name: 'oidc provider and links',
+    up: async (db) => {
+      // JIT-provisioned SSO users link back to their provider here; local
+      // logins leave both null. Not a foreign key on purpose, like `user_id`.
+      const hasSub = await db.schema.hasColumn('morse_users', 'oidc_sub');
+      if (!hasSub) {
+        await db.schema.alterTable('morse_users', (table) => {
+          table.text('oidc_sub').nullable();
+          table.text('oidc_issuer').nullable();
+        });
+      }
+      // Single-row provider config for UI-managed OIDC (`id` always 'default').
+      // Env-managed hosts never read it; the secret stays plaintext like every
+      // other host secret in this database (it comes back to an admin's browser).
+      await db.schema.createTableIfNotExists('morse_oidc_config', (table) => {
+        table.text('id').primary();
+        table.integer('enabled').notNullable().defaultTo(0);
+        table.text('display_name').notNullable().defaultTo('Single sign-on');
+        table.text('discovery_url').nullable();
+        table.text('auth_url').nullable();
+        table.text('token_url').nullable();
+        table.text('userinfo_url').nullable();
+        table.text('end_session_url').nullable();
+        table.text('client_id').nullable();
+        table.text('client_secret').nullable();
+        table.text('scopes').notNullable().defaultTo('openid profile email');
+        table.integer('allow_signup').notNullable().defaultTo(1);
+        table.bigInteger('updated_at').notNullable();
+      });
+    },
+  },
+  {
+    version: 5,
+    name: 'sso login sessions',
+    up: async (db) => {
+      // Marks which login sessions came through SSO: their logout bounces via
+      // the provider's end-session endpoint, while password logins end locally.
+      const hasOidc = await db.schema.hasColumn('morse_tokens', 'oidc');
+      if (!hasOidc) {
+        await db.schema.alterTable('morse_tokens', (table) => {
+          table.integer('oidc').notNullable().defaultTo(0);
+        });
+      }
+    },
+  },
 ];
 
 /**

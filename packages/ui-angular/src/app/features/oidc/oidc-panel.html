@@ -1,0 +1,77 @@
+<section class="oidc" aria-label="Authentication">
+  <header class="head">
+    <div>
+      <h2>Authentication</h2>
+      <p class="sub">Optional single sign-on beside the local login. Members created by either door are the same accounts.</p>
+    </div>
+    <label class="switch">
+      <input type="checkbox" [ngModel]="enabled()" (ngModelChange)="enabled.set($event)" [disabled]="managedByEnv()" />
+      <span>{{ enabled() ? 'Enabled' : 'Disabled' }}</span>
+    </label>
+  </header>
+
+  @if (loading()) {
+    <p class="muted">Loading…</p>
+  } @else {
+    @if (managedByEnv()) {
+      <p class="env-note" role="note">Managed by the environment (<code>MORSE_OIDC_*</code>) — read-only here. Unset those variables to edit this page instead.</p>
+    }
+    @if (error(); as message) {
+      <p class="error" role="alert">{{ message }}</p>
+    }
+    @if (notice(); as message) {
+      <p class="notice" role="status">{{ message }}</p>
+    }
+    <fieldset [disabled]="managedByEnv()">
+      <label class="field">
+        <span>Button label</span>
+        <input type="text" placeholder="Single sign-on" [ngModel]="displayName()" (ngModelChange)="displayName.set($event)" />
+      </label>
+      <label class="field">
+        <span>OpenID Connect Discovery URL</span>
+        <input type="url" placeholder="https://id.example.com/realms/morse/.well-known/openid-configuration" [ngModel]="discoveryUrl()" (ngModelChange)="discoveryUrl.set($event)" />
+      </label>
+      <div class="row">
+        <button type="button" class="secondary" (click)="discover()" [disabled]="managedByEnv() || discovering() || discoveryUrl().trim().length === 0">
+          {{ discovering() ? '…' : 'Fill endpoints from discovery' }}
+        </button>
+      </div>
+      <label class="field">
+        <span>Auth URL</span>
+        <input type="url" placeholder="https://id.example.com/…/auth" [ngModel]="authUrl()" (ngModelChange)="authUrl.set($event)" />
+      </label>
+      <label class="field">
+        <span>Token URL</span>
+        <input type="url" placeholder="https://id.example.com/…/token" [ngModel]="tokenUrl()" (ngModelChange)="tokenUrl.set($event)" />
+      </label>
+      <label class="field">
+        <span>Userinfo (API) URL</span>
+        <input type="url" placeholder="https://id.example.com/…/userinfo" [ngModel]="userinfoUrl()" (ngModelChange)="userinfoUrl.set($event)" />
+      </label>
+      <label class="field">
+        <span>Client ID</span>
+        <input type="text" autocomplete="off" [ngModel]="clientId()" (ngModelChange)="clientId.set($event)" />
+      </label>
+      <label class="field">
+        <span>Client secret {{ hasSecret() ? '(stored — leave blank to keep)' : '' }}</span>
+        <input type="password" autocomplete="new-password" placeholder="{{ hasSecret() ? '••••••••' : '' }}" [ngModel]="clientSecret()" (ngModelChange)="clientSecret.set($event)" />
+      </label>
+      <label class="field">
+        <span>Scopes</span>
+        <input type="text" placeholder="openid profile email" [ngModel]="scopes()" (ngModelChange)="scopes.set($event)" />
+      </label>
+      <label class="field">
+        <span>Sign-out redirect URL <em class="opt">(optional)</em></span>
+        <input type="url" placeholder="https://id.example.com/…/logout" [ngModel]="endSessionUrl()" (ngModelChange)="endSessionUrl.set($event)" />
+      </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="allowSignup()" (ngModelChange)="allowSignup.set($event)" />
+        <span>Allow sign-up — first SSO login creates the account (otherwise only existing members get in)</span>
+      </label>
+      <div class="row">
+        <button type="button" class="primary" (click)="save()" [disabled]="managedByEnv() || saving()">Save</button>
+        <button type="button" class="secondary" (click)="refresh()" [disabled]="saving()">Discard</button>
+      </div>
+    </fieldset>
+  }
+</section>

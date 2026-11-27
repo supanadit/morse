@@ -34,6 +34,7 @@ import { GitPanel } from '../features/git-panel/git-panel';
 import { SearchPanel } from '../features/search-panel/search-panel';
 import { ActivityRail } from '../features/activity-rail/activity-rail';
 import { AdminPanel } from '../features/admin/admin-panel';
+import { OidcPanel } from '../features/oidc/oidc-panel';
 import { ProvidersPanel } from '../features/providers/providers-panel';
 import { AuthScreen } from '../features/auth/auth-screen';
 import { AuthState } from '../host/auth-state';
@@ -130,6 +131,7 @@ interface SubagentEntry extends ChildSessionRef {
     SearchPanel,
     ActivityRail,
     AdminPanel,
+    OidcPanel,
     ProvidersPanel,
     AuthScreen,
     FileExplorer,
@@ -211,6 +213,9 @@ export class App {
     }
     if (tab.page === 'members' && this.auth.status()?.multiuser !== true) {
       return undefined; // Single-user hosts have no Members page.
+    }
+    if (tab.page === 'oidc' && this.auth.status()?.multiuser !== true) {
+      return undefined; // SSO needs the multi-user host that owns the login.
     }
     return tab.page;
   });

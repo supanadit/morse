@@ -110,12 +110,38 @@ export interface MorseServerConfig {
   pgPassword?: string;
   pgDatabase?: string;
   /**
+   * Generic OIDC / OAuth2 provider for multi-user login (optional). Env wins:
+   * when any `MORSE_OIDC_*` value is set the settings page renders read-only
+   * and this is the whole configuration. Otherwise the admin's settings page
+   * (stored in Postgres) provides it. Either way local login keeps working.
+   */
+  oidc: MorseOidcEnv;
+  /**
+   * True when any `MORSE_OIDC_*` knob is set: the provider is env-managed and
+   * the settings page disables its inputs instead of accepting writes.
+   */
+  oidcManagedByEnv: boolean;
+  /**
    * The bundle this host serves, as its own manifest declares it. Relayed to
    * clients in `host/ready`, so a frontend can name itself (the About dialog) and
    * the host log says which build is talking. Undefined when the directory has no
    * usable manifest — a bare dev directory, say.
    */
   frontend?: FrontendIdentity;
+}
+
+export interface MorseOidcEnv {
+  enabled: boolean;
+  displayName: string;
+  discoveryUrl?: string;
+  authUrl?: string;
+  tokenUrl?: string;
+  userinfoUrl?: string;
+  endSessionUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scopes: string;
+  allowSignup: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerConfig {
@@ -172,6 +198,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     instance: env.MORSE_INSTANCE?.trim() || undefined,
     authPassword: env.MORSE_AUTH_PASSWORD?.trim() || undefined,
     authUsername: env.MORSE_AUTH_USERNAME?.trim() || undefined,
+    oidc: readOidcEnv(env),
+    oidcManagedByEnv: isOidcEnvManaged(env),
   };
 }
 
@@ -248,6 +276,40 @@ function parseList(value: string | undefined): string[] {
     .split(/[:,]/)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+/** Any `MORSE_OIDC_*` knob set means the provider is env-managed (read-only UI). */
+function isOidcEnvManaged(env: NodeJS.ProcessEnv): boolean {
+  return (
+    env.MORSE_OIDC_ENABLED !== undefined ||
+    env.MORSE_OIDC_DISPLAY_NAME !== undefined ||
+    env.MORSE_OIDC_DISCOVERY_URL !== undefined ||
+    env.MORSE_OIDC_AUTH_URL !== undefined ||
+    env.MORSE_OIDC_TOKEN_URL !== undefined ||
+    env.MORSE_OIDC_USERINFO_URL !== undefined ||
+    env.MORSE_OIDC_END_SESSION_URL !== undefined ||
+    env.MORSE_OIDC_CLIENT_ID !== undefined ||
+    env.MORSE_OIDC_CLIENT_SECRET !== undefined ||
+    env.MORSE_OIDC_SCOPES !== undefined ||
+    env.MORSE_OIDC_ALLOW_SIGNUP !== undefined
+  );
+}
+
+/** Optional generic OIDC/OAuth2 provider from the environment (all unset = off). */
+function readOidcEnv(env: NodeJS.ProcessEnv): MorseOidcEnv {
+  return {
+    enabled: isOn(env.MORSE_OIDC_ENABLED),
+    displayName: env.MORSE_OIDC_DISPLAY_NAME?.trim() || 'Single sign-on',
+    discoveryUrl: env.MORSE_OIDC_DISCOVERY_URL?.trim() || undefined,
+    authUrl: env.MORSE_OIDC_AUTH_URL?.trim() || undefined,
+    tokenUrl: env.MORSE_OIDC_TOKEN_URL?.trim() || undefined,
+    userinfoUrl: env.MORSE_OIDC_USERINFO_URL?.trim() || undefined,
+    endSessionUrl: env.MORSE_OIDC_END_SESSION_URL?.trim() || undefined,
+    clientId: env.MORSE_OIDC_CLIENT_ID?.trim() || undefined,
+    clientSecret: env.MORSE_OIDC_CLIENT_SECRET?.trim() || undefined,
+    scopes: env.MORSE_OIDC_SCOPES?.trim() || 'openid profile email',
+    allowSignup: env.MORSE_OIDC_ALLOW_SIGNUP === undefined ? true : isOn(env.MORSE_OIDC_ALLOW_SIGNUP),
+  };
 }
 
 /**

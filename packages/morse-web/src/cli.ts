@@ -873,6 +873,16 @@ function printHelp(): void {
    MORSE_PG_PASSWORD      PostgreSQL password
    MORSE_PG_DATABASE      PostgreSQL database
    MORSE_WORKSPACE_ROOT   Per-user workspace fence (multi-user container)
+   MORSE_OIDC_ENABLED       Offer generic OIDC/OAuth2 login beside local login (1 enables)
+   MORSE_OIDC_DISPLAY_NAME  Label of the login page's SSO button
+   MORSE_OIDC_DISCOVERY_URL OpenID discovery URL (fills auth/token/userinfo endpoints)
+   MORSE_OIDC_AUTH_URL      Authorization endpoint (without discovery)
+   MORSE_OIDC_TOKEN_URL     Token endpoint (without discovery)
+   MORSE_OIDC_USERINFO_URL  Userinfo endpoint (without discovery)
+   MORSE_OIDC_CLIENT_ID     SSO client id
+   MORSE_OIDC_CLIENT_SECRET SSO client secret
+   MORSE_OIDC_SCOPES        Scopes requested at login (default: openid profile email)
+   MORSE_OIDC_ALLOW_SIGNUP  First SSO login creates the account (default: enabled)
    MORSE_PI_PATH          Path to the pi executable (default: pi on PATH)
    MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
 

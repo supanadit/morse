@@ -90,6 +90,10 @@
         <button type="submit" class="primary" [disabled]="!canSubmit()">
           {{ working() ? '…' : setupRequired() ? 'Create account' : 'Log in' }}
         </button>
+        @if (!setupRequired() && ssoName() !== null) {
+          <div class="sso-divider" aria-hidden="true"><span>or</span></div>
+          <a class="sso-button" href="/api/auth/oidc/login">Continue with {{ ssoName() }}</a>
+        }
       </form>
       </div>
     </section>

@@ -112,7 +112,7 @@ export interface SettingsTab {
   id: string;
   title: string;
   /** Which settings page this tab shows. More pages reuse the same shape. */
-  page: 'members' | 'access' | 'gpg' | 'git' | 'providers';
+  page: 'members' | 'oidc' | 'access' | 'gpg' | 'git' | 'providers';
 }
 
 import type {
@@ -153,6 +153,7 @@ const FILE_PREFIX = 'file:';
 export const MCP_TAB_ID = 'mcp:servers';
 /** The settings pages the strip can show, by tab id. */
 export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
+export const SETTINGS_OIDC_TAB_ID = 'settings:authentication';
 export const SETTINGS_ACCESS_TAB_ID = 'settings:access';
 export const SETTINGS_GPG_TAB_ID = 'settings:gpg';
 export const SETTINGS_GIT_TAB_ID = 'settings:git';
@@ -647,6 +648,16 @@ export class WorkspaceTabs {
       id: SETTINGS_MEMBERS_TAB_ID,
       title: 'Members',
       page: 'members',
+    });
+  }
+
+  /** Opens the Authentication page (SSO provider) under Management. */
+  openOidcPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_OIDC_TAB_ID,
+      title: 'Authentication',
+      page: 'oidc',
     });
   }
 
