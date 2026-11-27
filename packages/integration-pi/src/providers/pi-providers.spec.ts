@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +21,15 @@ async function list(providers: PiProviders): Promise<ProviderStatus> {
 describe('PiProviders', () => {
   it('lists the providers in pi’s own catalog with full model fields', async () => {
     const { agentDir, providers } = setup();
+    // Plant a hermetic pi provider catalog: the listing comes from pi's own
+    // install, so asserting against the real one couples the test to pi's
+    // release contents (e.g. a provider renamed upstream breaks CI).
+    mkdirSync(join(agentDir, 'install', 'releases', 'test', 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'providers'), { recursive: true });
+    writeFileSync(join(agentDir, 'install', 'current-version'), 'test');
+    writeFileSync(
+      join(agentDir, 'install', 'releases', 'test', 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'providers', 'all.js'),
+      'export function builtinProviders() { return [{ id: "opencode-go", name: "OpenCode Go", auth: { apiKey: {}, oauth: {} } }]; }',
+    );
     writeFileSync(
       join(agentDir, 'models-store.json'),
       JSON.stringify({

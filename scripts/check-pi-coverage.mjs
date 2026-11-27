@@ -70,7 +70,7 @@ async function main() {
   // extension wires together.
   const resolvePiUrl = pathToFileURL(join(adapterDist, 'internal', 'resolve-pi.js')).href;
   const installUrl = pathToFileURL(join(adapterDist, 'internal', 'pi-install.js')).href;
-  const agentUrl = pathToFileURL(join(adapterDist, 'pi-rpc-agent.js')).href;
+  const agentUrl = pathToFileURL(join(adapterDist, 'pi-rpc-helpers.js')).href;
   for (const url of [resolvePiUrl, installUrl, agentUrl]) {
     if (!existsSync(fileURLToPath(url))) {
       console.error(`The adapter is not built: ${fileURLToPath(url)} is missing. Run \`npm run build\` first.`);

@@ -106,6 +106,10 @@ jobs:
     env:
       # corepack would otherwise stop to ask before downloading pnpm.
       COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      # The checkout pins npm via `packageManager`, which makes corepack's
+      # pnpm shim refuse to run inside it. The pnpm legs never use the
+      # checkout's package manager — they only install pi globally.
+      COREPACK_ENABLE_STRICT: '0'
     steps:
       - uses: actions/checkout@v4
 
