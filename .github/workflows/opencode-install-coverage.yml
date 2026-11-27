@@ -68,6 +68,50 @@ jobs:
           - name: npm — Windows
             os: windows-latest
             install: npm
+          # pnpm copies a `sh` shim on POSIX and a `.cmd` shim on Windows.
+          - name: pnpm — Ubuntu
+            os: ubuntu-latest
+            install: pnpm
+          - name: pnpm — macOS arm64
+            os: macos-latest
+            install: pnpm
+          - name: pnpm — Windows
+            os: windows-latest
+            install: pnpm-win
+          - name: bun — Ubuntu
+            os: ubuntu-latest
+            install: bun
+          - name: bun — macOS arm64
+            os: macos-latest
+            install: bun
+          - name: bun — Windows
+            os: windows-latest
+            install: bun-win
+          # `sudo npm` leaves a root-owned prefix outside the user's npm tree
+          # (`/usr/local`); the resolver must still find the binary there.
+          - name: sudo npm — Ubuntu
+            os: ubuntu-latest
+            install: sudo-npm
+          - name: sudo npm — macOS arm64
+            os: macos-latest
+            install: sudo-npm
+          # A custom prefix exported from the shell profile only (nvm/volta
+          # style): invisible on the default PATH, visible to a login shell.
+          # The verify step runs through one, exactly like the host's PATH
+          # enrichment does (`shell -lic`).
+          - name: manual PATH (.bashrc) — Ubuntu
+            os: ubuntu-latest
+            install: manual-path
+          - name: manual PATH (.zshrc) — macOS arm64
+            os: macos-latest
+            install: manual-path
+    env:
+      # corepack would otherwise stop to ask before downloading pnpm.
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      # The checkout pins npm via `packageManager`, which makes corepack's
+      # pnpm shim refuse to run inside it. The pnpm legs never use the
+      # checkout's package manager — they only install OpenCode globally.
+      COREPACK_ENABLE_STRICT: '0'
     steps:
       - uses: actions/checkout@v4
 
@@ -94,11 +138,94 @@ jobs:
 
       - name: Install OpenCode via npm
         if: matrix.install == 'npm'
-        run: npm install -g --ignore-scripts @opencode/cli
+        run: npm install -g --allow-scripts=@opencode/cli @opencode/cli
+
+      - name: Install OpenCode via pnpm
+        if: matrix.install == 'pnpm'
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          # pnpm refuses a global install whose bin directory is not on PATH, so
+          # it is chosen, exported, and put there before the install runs. Set
+          # explicitly because the default differs per OS (`~/Library/pnpm` on
+          # macOS, `~/.local/share/pnpm` on Linux).
+          export PNPM_HOME="$HOME/.pnpm"
+          echo "PNPM_HOME=$PNPM_HOME" >> "$GITHUB_ENV"
+          echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$PNPM_HOME/bin:$PATH"
+          pnpm add -g @opencode/cli
+
+      - name: Install OpenCode via pnpm (Windows)
+        if: matrix.install == 'pnpm-win'
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          # Since pnpm 11 the global bin directory is `$PNPM_HOME\bin` on Windows
+          # too — it still checks that exact directory is on PATH, and the raw
+          # `$PNPM_HOME` is not enough (it fails with GLOBAL_BIN_DIR_NOT_IN_PATH).
+          $env:PNPM_HOME = "$env:USERPROFILE\.pnpm"
+          "PNPM_HOME=$env:PNPM_HOME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$env:PNPM_HOME\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:PNPM_HOME\bin;$env:PATH"
+          pnpm add -g @opencode/cli
+
+      - name: Install OpenCode via bun
+        if: matrix.install == 'bun'
+        shell: bash
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun add -g @opencode/cli
+
+      - name: Install OpenCode via bun (Windows)
+        if: matrix.install == 'bun-win'
+        shell: pwsh
+        run: |
+          Invoke-RestMethod -Uri https://bun.sh/install.ps1 | Invoke-Expression
+          "$env:USERPROFILE\.bun\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
+          bun add -g @opencode/cli
+
+      - name: Install OpenCode via sudo npm
+        if: matrix.install == 'sudo-npm'
+        shell: bash
+        run: |
+          # `sudo` resets PATH to secure_path, which lacks the runner's Node;
+          # carry it over so `npm` itself is found. The package still lands in
+          # the root-owned prefix, which is what this leg is about.
+          sudo env PATH="$PATH" npm install -g --allow-scripts=@opencode/cli @opencode/cli
+
+      - name: Install OpenCode into a custom prefix, exported from the shell profile only
+        if: matrix.install == 'manual-path'
+        shell: bash
+        run: |
+          npm install -g --prefix "$HOME/.custom-tools" --allow-scripts=@opencode/cli @opencode/cli
+          ls "$HOME/.custom-tools/bin"
+          if [ "$(uname)" = "Darwin" ]; then PROFILE="$HOME/.zshrc"; else PROFILE="$HOME/.bashrc"; fi
+          touch "$PROFILE"
+          echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$PROFILE"
+          # Plus the login-profile file, in case this image's chain does not
+          # source the rc from the profile (stock Ubuntu does; others may not).
+          if [ "$(uname)" != "Darwin" ]; then echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"; fi
+          grep -n custom-tools "$PROFILE"
 
       # `--dump` prints the entry, its realpath and the start of the shim on
       # success too: when a layout changes, the log already shows what changed.
       # No `shell:` here: the `shell` keyword cannot read `matrix`, and `node`
       # runs the same in the platform default (bash on Unix, pwsh on Windows).
       - name: Verify Morse reads the installed OpenCode
+        if: matrix.install != 'manual-path'
         run: node scripts/check-opencode-coverage.mjs --dump
+
+      # The manual-path install is invisible on the job's default PATH by
+      # design; a login+interactive shell sources the profile first — the same
+      # `-lic` invocation the host's PATH enrichment uses.
+      - name: Verify via a login shell, like the host's PATH enrichment
+        if: matrix.install == 'manual-path'
+        shell: bash
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then LOGIN_SHELL=/bin/zsh; else LOGIN_SHELL=/bin/bash; fi
+          "$LOGIN_SHELL" -lic 'node scripts/check-opencode-coverage.mjs --dump'

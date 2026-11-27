@@ -103,6 +103,24 @@ jobs:
           - name: bun — Windows
             os: windows-latest
             install: bun-win
+          # `sudo npm` leaves a root-owned prefix outside the user's npm tree
+          # (`/usr/local`); the resolver must still find the binary there.
+          - name: sudo npm — Ubuntu
+            os: ubuntu-latest
+            install: sudo-npm
+          - name: sudo npm — macOS arm64
+            os: macos-latest
+            install: sudo-npm
+          # A custom prefix exported from the shell profile only (nvm/volta
+          # style): invisible on the default PATH, visible to a login shell.
+          # The verify step runs through one, exactly like the host's PATH
+          # enrichment does (`shell -lic`).
+          - name: manual PATH (.bashrc) — Ubuntu
+            os: ubuntu-latest
+            install: manual-path
+          - name: manual PATH (.zshrc) — macOS arm64
+            os: macos-latest
+            install: manual-path
     env:
       # corepack would otherwise stop to ask before downloading pnpm.
       COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
@@ -212,9 +230,43 @@ jobs:
           $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
           bun add -g --ignore-scripts @earendil-works/pi-coding-agent
 
+      - name: Install pi via sudo npm
+        if: matrix.install == 'sudo-npm'
+        shell: bash
+        run: |
+          # `sudo` resets PATH to secure_path, which lacks the runner's Node;
+          # carry it over so `npm` itself is found. The package still lands in
+          # the root-owned prefix, which is what this leg is about.
+          sudo env PATH="$PATH" npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+      - name: Install pi into a custom prefix, exported from the shell profile only
+        if: matrix.install == 'manual-path'
+        shell: bash
+        run: |
+          npm install -g --prefix "$HOME/.custom-tools" --ignore-scripts @earendil-works/pi-coding-agent
+          ls "$HOME/.custom-tools/bin"
+          if [ "$(uname)" = "Darwin" ]; then PROFILE="$HOME/.zshrc"; else PROFILE="$HOME/.bashrc"; fi
+          touch "$PROFILE"
+          echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$PROFILE"
+          # Plus the login-profile file, in case this image's chain does not
+          # source the rc from the profile (stock Ubuntu does; others may not).
+          if [ "$(uname)" != "Darwin" ]; then echo 'export PATH="$HOME/.custom-tools/bin:$PATH"' >> "$HOME/.profile"; fi
+          grep -n custom-tools "$PROFILE"
+
       # `--dump` prints the entry, its realpath and the start of the shim on
       # success too: when a layout changes, the log already shows what changed.
       # No `shell:` here: the `shell` keyword cannot read `matrix`, and `node`
       # runs the same in the platform default (bash on Unix, pwsh on Windows).
       - name: Verify Morse reads the installed pi
+        if: matrix.install != 'manual-path'
         run: node scripts/check-pi-coverage.mjs --dump
+
+      # The manual-path install is invisible on the job's default PATH by
+      # design; a login+interactive shell sources the profile first — the same
+      # `-lic` invocation the host's PATH enrichment uses.
+      - name: Verify via a login shell, like the host's PATH enrichment
+        if: matrix.install == 'manual-path'
+        shell: bash
+        run: |
+          if [ "$(uname)" = "Darwin" ]; then LOGIN_SHELL=/bin/zsh; else LOGIN_SHELL=/bin/bash; fi
+          "$LOGIN_SHELL" -lic 'node scripts/check-pi-coverage.mjs --dump'
