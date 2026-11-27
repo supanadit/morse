@@ -112,7 +112,7 @@ export interface SettingsTab {
   id: string;
   title: string;
   /** Which settings page this tab shows. More pages reuse the same shape. */
-  page: 'members' | 'access' | 'gpg' | 'providers';
+  page: 'members' | 'access' | 'gpg' | 'git' | 'providers';
 }
 
 import type {
@@ -155,6 +155,7 @@ export const MCP_TAB_ID = 'mcp:servers';
 export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
 export const SETTINGS_ACCESS_TAB_ID = 'settings:access';
 export const SETTINGS_GPG_TAB_ID = 'settings:gpg';
+export const SETTINGS_GIT_TAB_ID = 'settings:git';
 export const SETTINGS_PROVIDERS_TAB_ID = 'settings:providers';
 
 /**
@@ -679,6 +680,16 @@ export class WorkspaceTabs {
     });
   }
 
+  /** Opens the Git identity page under Access in the settings menu. */
+  openGitPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_GIT_TAB_ID,
+      title: 'Git identity',
+      page: 'git',
+    });
+  }
+
   /**
    * Focuses an open tab, or appends it. Every singleton page goes through here:
    * the tab store holds one list and one active id, whatever the tab shows.
@@ -1009,7 +1020,7 @@ export class WorkspaceTabs {
   /** True while an admin-only settings page (Members, Providers) is open. */
   hasAdminSettingsTabs(): boolean {
     return this.items().some(
-      (tab) => tab.kind === 'settings' && tab.page !== 'access' && tab.page !== 'gpg',
+      (tab) => tab.kind === 'settings' && tab.page !== 'access' && tab.page !== 'gpg' && tab.page !== 'git',
     );
   }
 
@@ -1023,13 +1034,13 @@ export class WorkspaceTabs {
     this.dropAdminSettingsTabs();
   }
 
-  /** Drops admin-only settings pages, keeping the self-service Access page. */
+  /** Drops admin-only settings pages, keeping the self-service pages. */
   dropAdminSettingsTabs(): void {
     if (!this.hasAdminSettingsTabs()) {
       return;
     }
     this.items.update((list) =>
-      list.filter((tab) => tab.kind !== 'settings' || tab.page === 'access' || tab.page === 'gpg'),
+      list.filter((tab) => tab.kind !== 'settings' || tab.page === 'access' || tab.page === 'gpg' || tab.page === 'git'),
     );
     const active = this.active();
     if (active !== undefined && !this.items().some((tab) => tab.id === active)) {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   WorkspaceTabs,
   SETTINGS_ACCESS_TAB_ID,
+  SETTINGS_GIT_TAB_ID,
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
@@ -40,7 +41,7 @@ function clickRow(fixture: ComponentFixture<SettingsNav>, label: string): void {
 describe('SettingsNav', () => {
   it('lists Management/Members, Access leaves and Engine/Providers as collapsible sections', () => {
     const fixture = render();
-    expect(labels(fixture)).toEqual(['Management', 'Members', 'Access', 'SSH keys', 'GPG keys', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Management', 'Members', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
   });
 
   it('shows only the pages a regular member may open, dropping emptied sections', () => {
@@ -49,7 +50,7 @@ describe('SettingsNav', () => {
     // Management → Profile leaf for everyone would keep the Management header
     // here with Profile under it — the rule is per leaf, not per section.
     const fixture = render(true, false);
-    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'GPG keys']);
+    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'GPG keys', 'Git identity']);
   });
 
   it('opens the Members page on leaf click', () => {
@@ -70,7 +71,7 @@ describe('SettingsNav', () => {
 
   it('keeps Providers under its Engine section on a single-user host', () => {
     const fixture = render(false);
-    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'GPG keys', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
   });
 
   it('folds a section from its caret without opening a page', () => {
@@ -84,11 +85,11 @@ describe('SettingsNav', () => {
     chevron.click();
     fixture.detectChanges();
 
-    expect(labels(fixture)).toEqual(['Management', 'Access', 'SSH keys', 'GPG keys', 'Engine', 'Providers']);
+    expect(labels(fixture)).toEqual(['Management', 'Access', 'SSH keys', 'GPG keys', 'Git identity', 'Engine', 'Providers']);
     expect(tabs.activeId()).toBe(before);
   });
 
-  it('opens the SSH and GPG pages on leaf click', () => {
+  it('opens the SSH, GPG and Git pages on leaf click', () => {
     const fixture = render();
     const tabs = TestBed.inject(WorkspaceTabs);
 
@@ -97,5 +98,8 @@ describe('SettingsNav', () => {
 
     clickRow(fixture, 'GPG keys');
     expect(tabs.activeId()).toBe(SETTINGS_GPG_TAB_ID);
+
+    clickRow(fixture, 'Git identity');
+    expect(tabs.activeId()).toBe(SETTINGS_GIT_TAB_ID);
   });
 });

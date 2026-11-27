@@ -410,6 +410,11 @@
         <div class="settings-scroll">
           <ng-container [ngComponentOutlet]="gpgComponent()" />
         </div>
+      } @else if (activeSettingsPage() === 'git') {
+        <!-- Git has its own page: the member's global identity. -->
+        <div class="settings-scroll">
+          <ng-container [ngComponentOutlet]="gitComponent()" />
+        </div>
       } @else if (activeSettingsPage() === 'providers') {
         <!-- The settings menu's Providers page: connect models without a TUI. -->
         <div class="settings-scroll">

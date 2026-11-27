@@ -3,6 +3,7 @@ import type { TreeNode } from '@morse/ui-runtime';
 import {
   WorkspaceTabs,
   SETTINGS_ACCESS_TAB_ID,
+  SETTINGS_GIT_TAB_ID,
   SETTINGS_GPG_TAB_ID,
   SETTINGS_MEMBERS_TAB_ID,
   SETTINGS_PROVIDERS_TAB_ID,
@@ -11,7 +12,7 @@ import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
 
 /** Which settings page a leaf opens. Groups carry none — they only fold. */
-type SettingsPage = 'members' | 'access' | 'gpg' | 'providers';
+type SettingsPage = 'members' | 'access' | 'gpg' | 'git' | 'providers';
 
 /**
  * The settings menu: the left column's third face, in front while the rail's
@@ -50,7 +51,7 @@ export class SettingsNav {
     id: string,
     label: string,
     data: SettingsPage,
-    icon: 'admin' | 'plug' | 'lock' | 'tag',
+    icon: 'admin' | 'plug' | 'lock' | 'tag' | 'git',
     adminOnly: boolean,
   ): TreeNode<SettingsPage> & { adminOnly: boolean } {
     return { id, label, data, icon, kind: 'leaf', children: [], adminOnly };
@@ -90,6 +91,7 @@ export class SettingsNav {
       leaves: [
         this.leaf(SETTINGS_ACCESS_TAB_ID, 'SSH keys', 'access', 'lock', false),
         this.leaf(SETTINGS_GPG_TAB_ID, 'GPG keys', 'gpg', 'tag', false),
+        this.leaf(SETTINGS_GIT_TAB_ID, 'Git identity', 'git', 'git', false),
       ],
     });
     groups.push({
@@ -146,6 +148,8 @@ export class SettingsNav {
       this.tabs.openAccessPage();
     } else if (node.data === 'gpg') {
       this.tabs.openGpgPage();
+    } else if (node.data === 'git') {
+      this.tabs.openGitPage();
     } else if (node.data === 'providers') {
       this.tabs.openProvidersPage();
     }

@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Real OS users for multi-user hosts (container only).
@@ -126,6 +127,7 @@ export function ensureOsUser(username: string, warn: (message: string) => void):
   if (!shelled.ok) {
     warn(`Could not set the shell for "${username}": ${shelled.error}`);
   }
+  backupOsUsers(warn);
 }
 
 /** Points a login user's OS password at their Morse one. Never throws. */
@@ -137,6 +139,7 @@ export function setOsPassword(username: string, password: string, warn: (message
   if (!keyed.ok) {
     warn(`Could not set the SSH password for "${username}": ${keyed.error}`);
   }
+  backupOsUsers(warn);
 }
 
 /**
@@ -196,6 +199,104 @@ export function ownOsHome(username: string, path: string, warn: (message: string
   if (!zshrc.ok) {
     warn(`Could not hand .zshrc to "${username}": ${zshrc.error}`);
   }
+  ownOsSsh(username, path, warn);
+}
+
+/**
+ * Hands `~/.ssh` to its user: keys the server wrote (as uid `morse`) become
+ * theirs to read, while an explicit ACL keeps the server working. Without
+ * this the member cannot even `cat` their own `authorized_keys` (morse-owned
+ * mode 600), and stock sshd ownership checks fail too. Runs on every login
+ * via `ownOsHome`, so pre-fix files converge without a migration. Never
+ * throws.
+ */
+export function ownOsSsh(username: string, home: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const dir = join(home, '.ssh');
+  if (!existsSync(dir)) {
+    return;
+  }
+  const owned = sudo(['/usr/bin/chown', '-R', `${username}:${username}`, dir]);
+  if (!owned.ok) {
+    warn(`Could not hand "${dir}" to "${username}": ${owned.error}`);
+    return;
+  }
+  sudo(['/usr/bin/chmod', '700', dir]);
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
+    const target = join(dir, name);
+    sudo(['/usr/bin/chmod', name.endsWith('.pub') ? '644' : '600', target]);
+    // The server (uid morse) must keep reading keys and writing
+    // `authorized_keys` after the handover — ownership alone would lock it
+    // out, so files carry an explicit entry (the home's default ACL only
+    // reaches files created directly inside it, not in here).
+    sudo(['/usr/bin/setfacl', '-m', 'u:morse:rw', target]);
+  }
+  sudo(['/usr/bin/setfacl', '-m', 'u:morse:rwx', dir]);
+  sudo(['/usr/bin/setfacl', '-d', '-m', 'u:morse:rwx', dir]);
+}
+
+/**
+ * Hands one server-written path to its user (chown + an ACL keeping the
+ * server inside): for files written after login, where `ownOsSsh`'s
+ * login-time pass has already run. `~/.gitconfig` is the first such file —
+ * `git config --global` runs as uid `morse` with `HOME` overridden, so the
+ * write lands morse-owned. Never throws.
+ */
+export function ownOsPath(username: string, target: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  if (!existsSync(target)) {
+    return;
+  }
+  const owned = sudo(['/usr/bin/chown', `${username}:${username}`, target]);
+  if (!owned.ok) {
+    warn(`Could not hand "${target}" to "${username}": ${owned.error}`);
+    return;
+  }
+  sudo(['/usr/bin/setfacl', '-m', 'u:morse:rw', target]);
+}
+
+/**
+ * Snapshots the login user database (`passwd`, `shadow`, `group`, `gshadow`)
+ * onto the persisted volume after every mutation. `/etc` is container-local:
+ * without this a recreate wipes every login and password while the homes
+ * survive — and fresh uid numbering then scrambles file ownership. The boot
+ * entrypoint replays this snapshot before sshd starts, so the same names
+ * return with the same uids and password hashes. Uses the already-granted
+ * NOPASSWD `cp`/`chmod`. Never throws.
+ */
+export function backupOsUsers(warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const base = process.env.MORSE_HOME;
+  if (base === undefined || base.length === 0) {
+    return;
+  }
+  const store = join(base, 'os-users');
+  try {
+    mkdirSync(store, { recursive: true, mode: 0o700 });
+  } catch {
+    return;
+  }
+  for (const file of ['passwd', 'shadow', 'group', 'gshadow']) {
+    const copied = sudo(['/usr/bin/cp', `/etc/${file}`, join(store, file)]);
+    if (!copied.ok) {
+      warn(`Could not snapshot "${file}": ${copied.error}`);
+      return;
+    }
+  }
+  sudo(['/usr/bin/chmod', '600', join(store, 'shadow'), join(store, 'gshadow')]);
+  sudo(['/usr/bin/chmod', '644', join(store, 'passwd'), join(store, 'group')]);
 }
 
 /** Drops the Linux user on Morse user delete. The home (their data) stays. */
@@ -207,6 +308,7 @@ export function removeOsUser(username: string, warn: (message: string) => void):
   if (!removed.ok) {
     warn(`Could not remove OS user "${username}": ${removed.error}`);
   }
+  backupOsUsers(warn);
 }
 
 /**

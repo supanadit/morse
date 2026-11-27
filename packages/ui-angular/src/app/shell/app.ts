@@ -22,6 +22,7 @@ import { McpEditor } from '../features/mcp-editor/mcp-editor';
 import type { PromptEditor } from '../features/prompt-editor/prompt-editor';
 import type { AccessPanel } from '../features/access/access-panel';
 import type { GpgPanel } from '../features/gpg/gpg-panel';
+import type { GitIdentityPanel } from '../features/git-identity/git-identity-panel';
 import { ChatTranscript } from '../features/transcript/transcript';
 import { FilePreview } from '../features/file-preview/file-preview';
 import { InteractionPanel } from '../features/interaction/interaction';
@@ -201,7 +202,7 @@ export class App {
       return undefined;
     }
     // Self-service: any signed-in member (or a single-user host) sees Access.
-    if (tab.page === 'access' || tab.page === 'gpg') {
+    if (tab.page === 'access' || tab.page === 'gpg' || tab.page === 'git') {
       return this.accessAllowed() ? tab.page : undefined;
     }
     if (!this.settingsAllowed()) {
@@ -597,6 +598,13 @@ export class App {
   protected readonly gpgComponent = signal<typeof GpgPanel | null>(null);
   private gpgClass: typeof GpgPanel | null = null;
   private gpgLoading = false;
+  /**
+   * The Git identity page is code-split the same way: out of the initial
+   * bundle until its own settings tab is in front.
+   */
+  protected readonly gitComponent = signal<typeof GitIdentityPanel | null>(null);
+  private gitClass: typeof GitIdentityPanel | null = null;
+  private gitLoading = false;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
@@ -1033,6 +1041,18 @@ export class App {
       }
       void this.loadGpg();
     });
+    // Load the Git identity page only while its settings tab is in front.
+    effect(() => {
+      if (this.activeSettingsPage() !== 'git') {
+        this.gitComponent.set(null);
+        return;
+      }
+      if (this.gitClass !== null) {
+        this.gitComponent.set(this.gitClass);
+        return;
+      }
+      void this.loadGit();
+    });
   }
 
   private async loadAccess(): Promise<void> {
@@ -1064,6 +1084,22 @@ export class App {
       }
     } finally {
       this.gpgLoading = false;
+    }
+  }
+
+  private async loadGit(): Promise<void> {
+    if (this.gitLoading) {
+      return;
+    }
+    this.gitLoading = true;
+    try {
+      const { GitIdentityPanel: Panel } = await import('../features/git-identity/git-identity-panel');
+      this.gitClass = Panel;
+      if (this.activeSettingsPage() === 'git') {
+        this.gitComponent.set(Panel);
+      }
+    } finally {
+      this.gitLoading = false;
     }
   }
 

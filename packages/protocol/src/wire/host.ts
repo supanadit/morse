@@ -231,7 +231,11 @@ export type ServerHostCommand =
   /** The armored public key (`{ keyId? }` → `{ armor }`). */
   | 'gpgPublic'
   /** The armored private key (`{ keyId? }` → `{ armor }`). Keep it secret. */
-  | 'gpgPrivate';
+  | 'gpgPrivate'
+  /** This member's global git identity (`{ userId? }` → `GitIdentity`). */
+  | 'gitIdentityStatus'
+  /** Replace global git identity keys (`{ userId?, identity }` → `GitIdentity`). */
+  | 'gitIdentitySave';
 
 /**
  * Commands only the VS Code host answers: they reach into the editor, the workbench

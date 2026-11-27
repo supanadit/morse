@@ -39,3 +39,26 @@ export interface GpgStatus {
   username: string;
   keys: GpgKeyInfo[];
 }
+
+/**
+ * One member's global git identity (`~/.gitconfig`): the handful of keys that
+ * matter everywhere — who commits say they are from, and whether signing is
+ * on. Missing keys are simply unset (empty string on the wire), never
+ * defaulted: the panel shows what git would actually use.
+ */
+export interface GitIdentity {
+  username: string;
+  /** Home the config was read from (the user's workspace root). */
+  home: string;
+  name: string;
+  email: string;
+  editor: string;
+  defaultBranch: string;
+  /** `true` / `false` / empty (unset). */
+  pullRebase: string;
+  /** `true` / `false` / empty (unset). */
+  autoSetupRemote: string;
+  /** `true` when `commit.gpgsign` is on, else empty (unset). */
+  gpgSign: string;
+  signingKey: string;
+}

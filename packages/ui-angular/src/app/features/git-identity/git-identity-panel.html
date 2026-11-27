@@ -1,0 +1,80 @@
+<section class="git" aria-label="Git identity">
+  <header class="page-head">
+    <div class="heading">
+      <h2>Git identity</h2>
+      <p class="sub">Your own global <code>~/.gitconfig</code> — who your commits say they are from. Same file every terminal and SSH session reads.</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" class="secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+    </div>
+  </header>
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+  @if (notice(); as message) {
+    <p class="notice" role="status">{{ message }}</p>
+  }
+
+  @if (loading() && !status()) {
+    <p class="empty">Loading git identity…</p>
+  } @else {
+    <div class="form-grid">
+      <label class="field">
+        <span>Name (<code>user.name</code>)</span>
+        <input type="text" placeholder="eg. Bob Builder" [ngModel]="formName()" (ngModelChange)="formName.set($event)" />
+      </label>
+      <label class="field">
+        <span>Email (<code>user.email</code>)</span>
+        <input type="email" placeholder="eg. bob@example.com" [ngModel]="formEmail()" (ngModelChange)="formEmail.set($event)" />
+      </label>
+      <label class="field">
+        <span>Editor (<code>core.editor</code>)</span>
+        <input type="text" placeholder="eg. vim" [ngModel]="formEditor()" (ngModelChange)="formEditor.set($event)" />
+      </label>
+      <label class="field">
+        <span>Default branch (<code>init.defaultBranch</code>)</span>
+        <input type="text" placeholder="eg. main" [ngModel]="formDefaultBranch()" (ngModelChange)="formDefaultBranch.set($event)" />
+      </label>
+      <label class="field">
+        <span>Pull rebase (<code>pull.rebase</code>)</span>
+        <select [ngModel]="formPullRebase()" (ngModelChange)="formPullRebase.set($event)">
+          <option value="">Unset</option>
+          <option value="true">true — rebase on pull</option>
+          <option value="false">false — merge on pull</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Push auto-setup (<code>push.autoSetupRemote</code>)</span>
+        <select [ngModel]="formAutoSetupRemote()" (ngModelChange)="formAutoSetupRemote.set($event)">
+          <option value="">Unset</option>
+          <option value="true">true — first push sets upstream</option>
+          <option value="false">false</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Signing key (<code>user.signingkey</code>)</span>
+        @if (gpgKeys().length > 0) {
+          <select [ngModel]="formSigningKey()" (ngModelChange)="formSigningKey.set($event)">
+            <option value="">None</option>
+            @for (key of gpgKeys(); track key.id) {
+              <option [value]="key.id">{{ key.id }} — {{ key.uids[0] ?? 'no uid' }}</option>
+            }
+          </select>
+        } @else {
+          <input type="text" placeholder="No GPG keys yet — generate one on the GPG page" [ngModel]="formSigningKey()" (ngModelChange)="formSigningKey.set($event)" />
+        }
+      </label>
+    </div>
+    <label class="check">
+      <input type="checkbox" [ngModel]="formGpgSign()" (ngModelChange)="formGpgSign.set($event)" />
+      <span>Sign every commit (<code>commit.gpgsign true</code>) — pairs with the key above</span>
+    </label>
+    <div class="row">
+      <button type="button" class="secondary" (click)="save()" [disabled]="busy()">Save git identity</button>
+      @if (formGpgSign() || formSigningKey().trim() !== '') {
+        <button type="button" class="text" (click)="disableSigning()" [disabled]="busy()">Stop signing commits</button>
+      }
+    </div>
+  }
+</section>

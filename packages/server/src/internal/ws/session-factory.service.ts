@@ -29,7 +29,7 @@ import {
   PI_INSTALL_COMMAND,
 } from '@morse/integration-pi';
 import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
-import { ensureOsUser, grantOsHomeAdmin, grantOsRootAdmin, listOsHomes, osUserHome, osUsersEnabled, ownOsHome, revokeOsHomeAdmin, revokeOsRootAdmin, USER_SHELL } from '../os-users.js';
+import { ensureOsUser, grantOsHomeAdmin, grantOsRootAdmin, listOsHomes, osUserHome, osUsersEnabled, ownOsHome, ownOsPath, ownOsSsh, revokeOsHomeAdmin, revokeOsRootAdmin, USER_SHELL } from '../os-users.js';
 import {
   HostSessionController,
   SessionTranscriptStore,
@@ -71,6 +71,8 @@ import {
   saveAuthorizedKeys,
   sshStatusFor,
 } from '../user-keys.js';
+import { gitIdentityFor, GIT_IDENTITY_FIELDS, saveGitIdentity } from '../git-identity.js';
+import type { GitIdentity } from '@morse/protocol';
 import {
   describeError,
   mcpScope,
@@ -1220,6 +1222,9 @@ export class MorseSessionFactory {
         const home = await this.keyHomeFor(args, user);
         const type = args?.type === 'rsa' ? 'rsa' : 'ed25519';
         const status = generateSshKey(home.path, home.username, type);
+        // The server writes as uid `morse`: hand the files over at once, or
+        // the member can never read their own keys until the next login.
+        ownOsSsh(home.username, home.path, (message) => this.logger.warn(message));
         this.logger.info(`${user?.username} generated an SSH key for "${home.username}".`);
         return status;
       }
@@ -1232,6 +1237,7 @@ export class MorseSessionFactory {
         const home = await this.keyHomeFor(args, user);
         const name = typeof args?.name === 'string' ? args.name : '';
         const status = deleteSshKey(home.path, home.username, name);
+        ownOsSsh(home.username, home.path, (message) => this.logger.warn(message));
         this.logger.info(`${user?.username} deleted SSH key "${name}" for "${home.username}".`);
         return status;
       }
@@ -1239,6 +1245,9 @@ export class MorseSessionFactory {
         const home = await this.keyHomeFor(args, user);
         const keys = Array.isArray(args?.keys) ? (args.keys as unknown[]).filter((k): k is string => typeof k === 'string') : [];
         const status = saveAuthorizedKeys(home.path, home.username, keys);
+        // Same handover: `authorized_keys` is written as `morse`, and sshd
+        // plus the member both need it readable by its owner from here on.
+        ownOsSsh(home.username, home.path, (message) => this.logger.warn(message));
         this.logger.info(`${user?.username} saved authorized_keys for "${home.username}".`);
         return status;
       }
@@ -1269,6 +1278,29 @@ export class MorseSessionFactory {
         const keyId = typeof args?.keyId === 'string' ? args.keyId : '';
         const status = deleteGpgKey(home.path, home.username, keyId);
         this.logger.info(`${user?.username} deleted GPG key "${keyId}" for "${home.username}".`);
+        return status;
+      }
+      case 'gitIdentityStatus': {
+        const home = await this.keyHomeFor(args, user);
+        return gitIdentityFor(this.gitScopeHome(home.path), home.username);
+      }
+      case 'gitIdentitySave': {
+        const home = await this.keyHomeFor(args, user);
+        // Only the allowlisted fields cross: username/home ride the wire for
+        // display but are never written back.
+        const raw = args?.identity !== undefined && typeof args.identity === 'object' ? (args.identity as Partial<GitIdentity>) : {};
+        const values: Partial<GitIdentity> = {};
+        for (const field of GIT_IDENTITY_FIELDS) {
+          if (typeof raw[field] === 'string') {
+            values[field] = raw[field];
+          }
+        }
+        const scope = this.gitScopeHome(home.path);
+        const status = saveGitIdentity(scope, home.username, values);
+        // Written as uid `morse` (HOME override): hand the file to its owner
+        // at once, the way the SSH handover does for `authorized_keys`.
+        ownOsPath(home.username, join(scope, '.gitconfig'), (message) => this.logger.warn(message));
+        this.logger.info(`${user?.username} saved git identity for "${home.username}".`);
         return status;
       }
       case 'updateHost': {
@@ -1383,6 +1415,21 @@ export class MorseSessionFactory {
         : (this.fenceFor(user) ?? this.config.workspace.cwd);
     mkdirSync(path, { recursive: true });
     return { path, username };
+  }
+
+  /**
+   * Where global git identity lives for this host: the member's fenced tree
+   * on multi-user hosts (one `~/.gitconfig` per login, read by every shell
+   * and SSH session), the server's own home elsewhere (a host-native install
+   * runs as its user, so `HOME` is already right and overriding it would
+   * scatter a `.gitconfig` into the project directory instead).
+   */
+  private gitScopeHome(fenced: string): string {
+    if (this.config.multiuser && this.config.workspaceRoot !== undefined) {
+      return fenced;
+    }
+    const home = process.env.HOME ?? '';
+    return home.length > 0 ? home : fenced;
   }
 
   /**

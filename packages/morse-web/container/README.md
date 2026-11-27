@@ -96,6 +96,18 @@ for everyone: `~/.zshrc` is seeded once from the image and then yours alone.
   delete — and only ever touches the filesystem, never sudo.
 - Ports to publish: `:4399` (app) + `:2222` (SSH), both loopback-only in the
   quadlet.
+- Surviving a recreate: `/etc` is container-local, so the login database
+  (`passwd`, `shadow`, `group`, `gshadow`) is snapshotted to
+  `<MORSE_HOME>/os-users` after every user change, and the boot entrypoint
+  replays it before sshd starts — same names, same uids, same password
+  hashes, so passwords and key files keep working and file ownership never
+  scrambles. Homes are repaired on every web login anyway (`<user>:<user>`,
+  plus `~/.ssh` handed over with an ACL keeping the server inside).
+- Pubkey notes: `StrictModes` is off for this sshd, because homes are
+  deliberately group-writable (`2750` + default ACL) and key files are written
+  by uid `morse` — stock strict mode would refuse every key and silently fall
+  back to password. The fence itself (private group per user, `0711` root, no
+  cross-home writes) is the protection strict mode stands in for.
 
 ## Toolchain (user space, no sudo needed)
 

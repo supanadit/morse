@@ -4,7 +4,7 @@
 // Morse host attached to it (see `MORSE_OPENCODE_URL`). pi needs no server —
 // the host spawns one process per session. ezx stays PID 1 and never exec's
 // away. No shell entrypoints — this file is the entrypoint.
-const { fs, chain, log } = require("ezx");
+const { fs, chain, log, process } = require("ezx");
 const {
 	MORSE_HOME,
 	MORSE_LOGS,
@@ -37,14 +37,43 @@ function setupDirectories() {
 	// Per-user workspace fence: the host creates `<root>/<username>` on first
 	// login, but the root itself belongs to the image contract. `0711` lets a
 	// login traverse to their own directory without listing anyone else's.
+	// Non-recursive on purpose: every home inside is `<user>:<user>` (the
+	// server hands it over at login), and a recursive chown here would hand
+	// them all back to the service account — locking each login out of its
+	// own tree, SSH included — on every restart.
 	if (MORSE_MULTIUSER && MORSE_WORKSPACE_ROOT) {
 		fs.ensureDir(MORSE_WORKSPACE_ROOT, { mode: 0o711 });
-		fs.chownRecursive(MORSE_WORKSPACE_ROOT, owner);
+		fs.chown(MORSE_WORKSPACE_ROOT, owner);
 		fs.chmod(MORSE_WORKSPACE_ROOT, 0o711);
 	}
 	// sshd's privilege-separation directory: tmpfs, so it is recreated every boot.
 	if (MORSE_OS_USERS) {
 		fs.ensureDir("/run/sshd", { mode: 0o755 });
+	}
+}
+
+/**
+ * Replay the snapshotted login users before anything needs them: `/etc` is
+ * container-local, so a recreate would otherwise wipe every login and
+ * password while the homes survive (and fresh uid numbering would show other
+ * members' names on your files). Best-effort by design — a failure only logs,
+ * and the server still recreates a missing user on next web login.
+ */
+function restoreOsUsers() {
+	if (!MORSE_OS_USERS) {
+		return;
+	}
+	try {
+		process.run({
+			process: {
+				binaryPath: "/opt/node/bin/node",
+				arguments: ["/opt/morse/entrypoint.d/bootstrap/restore-os-users.js"],
+			},
+			timeout: 60e9,
+			check: true,
+		});
+	} catch (error) {
+		log.warn(`Could not replay OS users: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 
@@ -134,6 +163,14 @@ function sshNode() {
 				"PasswordAuthentication=yes",
 				"-o",
 				"PubkeyAuthentication=yes",
+				// Homes are intentionally group-writable (2750 + default ACL: the
+				// private group shares write under umask 002) and key files are
+				// written by uid `morse` (the server), so stock StrictModes would
+				// refuse every key and silently fall back to password. Off: the
+				// fence itself is the protection StrictModes stands in for — a
+				// private group per user, `0711` root, no cross-home writes.
+				"-o",
+				"StrictModes=no",
 				"-o",
 				"PermitRootLogin=no",
 				"-o",
@@ -167,6 +204,7 @@ function main() {
 		throw new Error("Invalid container environment");
 	}
 	setupDirectories();
+	restoreOsUsers();
 	const nodes = [opencodeNode(), morseNode()];
 	if (MORSE_OS_USERS) {
 		nodes.push(sshNode());

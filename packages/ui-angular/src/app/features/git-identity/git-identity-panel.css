@@ -1,0 +1,19 @@
+/* Git settings: mirrors the GPG panel's tokens. */
+.git { display: flex; flex-direction: column; gap: 12px; padding: 16px; max-width: 760px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.page-head h2 { margin: 0; font-size: 18px; }
+.sub { margin: 4px 0 0; opacity: 0.7; font-size: 13px; }
+.sub code { font-family: monospace; }
+.head-actions { display: flex; gap: 8px; }
+.error { color: #f66; }
+.notice { color: #8f8; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field span code { font-family: monospace; opacity: 0.8; }
+.field input, .field select { background: #111; color: inherit; border: 1px solid #333; border-radius: 6px; padding: 8px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.check code { font-family: monospace; opacity: 0.8; }
+.empty { opacity: 0.7; }
+button.secondary, button.text { cursor: pointer; }
+button.text { background: transparent; border: none; color: inherit; opacity: 0.8; }
