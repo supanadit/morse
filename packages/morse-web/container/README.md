@@ -77,8 +77,10 @@ for everyone: `~/.zshrc` is seeded once from the image and then yours alone.
 - Provisioned on first login (and repaired on every login for pre-existing
   accounts); the SSH password follows each Morse password set. Accounts that
   predate this feature SSH-fail until their next password change.
-- Homes are `<user>:morse` mode `2770` with umask 002 on both sides, so agent
-  files and SSH files stay mutually editable. Deleting the Morse user drops
-  the login but keeps the home (their data).
+- Homes are `<user>:<user>` mode `2750` with an ACL for exactly uid `morse`:
+  the server keeps working inside, other logins see nothing — no sudo for
+  anyone (only `morse` holds three sudo entries), and `/workspaces` itself is
+  `0711` so one user cannot even list another's directory name. Deleting the
+  Morse user drops the login but keeps the home (their data).
 - Ports to publish: `:4399` (app) + `:2222` (SSH), both loopback-only in the
   quadlet.

@@ -35,10 +35,12 @@ function setupDirectories() {
 		fs.chownRecursive(dir, owner);
 	}
 	// Per-user workspace fence: the host creates `<root>/<username>` on first
-	// login, but the root itself belongs to the image contract.
+	// login, but the root itself belongs to the image contract. `0711` lets a
+	// login traverse to their own directory without listing anyone else's.
 	if (MORSE_MULTIUSER && MORSE_WORKSPACE_ROOT) {
-		fs.ensureDir(MORSE_WORKSPACE_ROOT, { mode: 0o755 });
+		fs.ensureDir(MORSE_WORKSPACE_ROOT, { mode: 0o711 });
 		fs.chownRecursive(MORSE_WORKSPACE_ROOT, owner);
+		fs.chmod(MORSE_WORKSPACE_ROOT, 0o711);
 	}
 	// sshd's privilege-separation directory: tmpfs, so it is recreated every boot.
 	if (MORSE_OS_USERS) {

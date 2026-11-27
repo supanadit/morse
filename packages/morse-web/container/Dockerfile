@@ -163,12 +163,12 @@ COPY packages/morse-web/container/entrypoint.d /opt/morse/entrypoint.d
 # into the single workspaces volume: every login user is also a Linux user
 # whose home is `/home/<username>`, so one volume carries all trees and
 # `MORSE_WORKSPACE_ROOT` needs no second mount.
-RUN apt-get update && apt-get install -y --no-install-recommends passwd openssh-server sudo zsh && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends passwd openssh-server sudo zsh acl && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /workspaces \
     && rm -rf /home \
     && ln -s /workspaces /home \
     && /usr/sbin/useradd --system --create-home --home-dir /home/morse --shell /usr/sbin/nologin morse \
-    && printf '%s\n' 'morse ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/usermod, /usr/sbin/chpasswd, /usr/sbin/userdel, /usr/bin/chown, /usr/bin/chmod, /usr/bin/cp' > /etc/sudoers.d/morse-os-users \
+    && printf '%s\n' 'morse ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/bin/gpasswd, /usr/sbin/chpasswd, /usr/sbin/userdel, /usr/bin/chown, /usr/bin/chmod, /usr/bin/cp, /usr/bin/setfacl' > /etc/sudoers.d/morse-os-users \
     && chmod 0440 /etc/sudoers.d/morse-os-users \
     && sed -i 's/^#\?UMASK.*/UMASK\t002/' /etc/login.defs \
     && mkdir -p /opt/containers/data /opt/containers/config /opt/containers/logs /opt/containers/run /opt/containers/backup /workspaces \
