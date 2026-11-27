@@ -1051,51 +1051,6 @@ describe('HostSessionController seeding', () => {
     expect(items.some((item) => item.kind === 'user' && item.at === 1_000)).toBe(true);
   });
 
-  it('a cold attach reads every history page, so a second device opens the whole conversation', async () => {
-    const reads: (string | undefined)[] = [];
-    const h = harness({
-      historyPage: (before) => {
-        reads.push(before);
-        if (before === undefined) {
-          // Newest page first.
-          return {
-            entries: [{ role: 'user', text: 'newest', at: 3_000 }],
-            hasOlder: true,
-            before: 'cursor-1',
-          };
-        }
-        return {
-          entries: [
-            { role: 'user', text: 'oldest', at: 1_000 },
-            { role: 'assistant', text: 'middle', thinking: '', at: 2_000 },
-          ],
-          hasOlder: false,
-        };
-      },
-    });
-    await h.controller.start();
-    h.messages.length = 0;
-
-    await h.controller.handleClientMessage({
-      type: 'session/activate',
-      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
-    });
-    await vi.waitFor(() => expect(h.transcripts.items('sess-1')).toHaveLength(3));
-
-    // Both pages were read, oldest first on screen.
-    expect(reads).toEqual([undefined, 'cursor-1']);
-    expect(h.transcripts.items('sess-1').map((item) => item.kind)).toEqual([
-      'user',
-      'assistant',
-      'user',
-    ]);
-    expect(h.transcripts.items('sess-1')[0]).toMatchObject({ text: 'oldest' });
-    // Fully seeded: nothing older left to page for.
-    expect(h.lastState()?.hasOlderHistory).toBe(false);
-    expect(h.lastState()?.loadingOlderHistory).toBe(false);
-    expect(h.transcripts.historyCursor('sess-1')).toEqual({ before: undefined, hasOlder: false });
-  });
-
   it('a live tail arriving mid-seed wins over the history snapshot', async () => {
     const h = harness({
       historyEntries: [{ role: 'user', text: 'from disk', at: 1_000 }],

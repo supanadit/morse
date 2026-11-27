@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   AgentGateway,
-  AgentHistoryEntry,
   AgentInteractionRequest,
   AgentInteractionResponse,
   AgentSessionState,
@@ -190,12 +189,6 @@ const SESSION_TITLE_MAX = 120;
 
 /** How many history entries one page carries when a resumed session is seeded. */
 const HISTORY_PAGE_SIZE = 50;
-/**
- * How many history pages a cold attach reads at most: 40 × 50 entries covers
- * every realistic conversation in one go, and anything older stays pageable
- * through `history/load` instead of looping a lying adapter forever.
- */
-const MAX_SEED_PAGES = 40;
 
 /** The title a session without a name shows until the user says something. */
 const UNTITLED_SESSION = 'New session';
@@ -1170,55 +1163,31 @@ export class HostSessionController {
     if (!gateway) {
       return;
     }
-    // A resumed session is seeded from history, so until the pages land we do
-    // not yet know that they reach the beginning: show "Loading older…" rather
+    // A resumed session is seeded from history, so until the page lands we do
+    // not yet know that it reaches the beginning: show "Loading older…" rather
     // than claiming "Start of conversation".
     this.loadingOlderHistory = true;
     this.emitState();
-    // A cold attach reads the whole conversation, oldest page included: the
-    // server owns the transcript, so every client opens on the same complete
-    // view instead of the first device holding the full scrollback while later
-    // devices page up from the tail one screen at a time.
-    const pages: AgentHistoryEntry[][] = [];
-    let before: string | undefined;
-    let hasOlder = false;
-    for (let page = 0; page < MAX_SEED_PAGES; page += 1) {
-      const result = await this.guard(() =>
-        gateway.history({ limit: HISTORY_PAGE_SIZE, ...(before === undefined ? {} : { before }) }),
-      );
-      if (!result.ok) {
-        this.loadingOlderHistory = false;
-        this.emitState();
-        return;
-      }
-      pages.push(result.value.entries);
-      hasOlder = result.value.hasOlder;
-      before = result.value.before;
-      if (!hasOlder || before === undefined || this.activeKey !== key) {
-        break;
-      }
-    }
+    const result = await this.guard(() => gateway.history({ limit: HISTORY_PAGE_SIZE }));
     this.loadingOlderHistory = false;
-    if (this.activeKey !== key || this.options.transcripts.items(key).length > 0) {
-      // The reader moved on, or live events landed while the pages were read
-      // (the store is fed straight off the registry now): the warm transcript
-      // wins over this snapshot.
+    if (!result.ok || this.options.transcripts.items(key).length > 0 || this.activeKey !== key) {
       this.emitState();
       return;
     }
-    // Pages arrive newest-first with oldest-first rows inside: flip the pages.
-    const entries = pages.reverse().flat();
-    this.historyBefore = hasOlder ? before : undefined;
-    this.hasOlderHistory = hasOlder;
+    this.historyBefore = result.value.before;
+    this.hasOlderHistory = result.value.hasOlder;
     this.options.transcripts.setHistoryCursor(key, {
-      before: hasOlder ? before : undefined,
-      hasOlder,
+      before: result.value.before,
+      hasOlder: result.value.hasOlder,
     });
     // A warm session's state may have arrived before this controller attached, so
     // the transcript learns the model from the registry here too — otherwise the
     // first answer after a reconnect would be stamped with nothing.
     this.options.transcripts.setModel(key, this.options.services.registry.stateOf(key)?.model);
-    this.options.transcripts.seed(key, historyItems(key, entries, this.historyPageSeq++));
+    this.options.transcripts.seed(
+      key,
+      historyItems(key, result.value.entries, this.historyPageSeq++),
+    );
     this.emitState();
   }
 
