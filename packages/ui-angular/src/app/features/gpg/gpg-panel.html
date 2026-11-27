@@ -1,0 +1,68 @@
+<section class="gpg" aria-label="GPG keys">
+  <header class="page-head">
+    <div class="heading">
+      <h2>GPG keys</h2>
+      <p class="sub">Your own keys for signing commits. Needs <code>gnupg</code> on the host (<code>sudo apt-get install -y gnupg</code>), or use a terminal with gpg: <code>gpg --full-generate-key</code>.</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" class="secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+    </div>
+  </header>
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+  @if (notice(); as message) {
+    <p class="notice" role="status">{{ message }}</p>
+  }
+
+  @if (loading() && !status()) {
+    <p class="empty">Loading GPG keys…</p>
+  } @else {
+    @for (key of status()?.keys ?? []; track key.id) {
+      <div class="key-card">
+        <div class="key-head">
+          <strong>{{ key.id }}</strong>
+          @if (key.fingerprint) {
+            <code class="fp">{{ key.fingerprint }}</code>
+          }
+        </div>
+        @for (uid of key.uids; track uid) {
+          <span class="uid">{{ uid }}</span>
+        }
+        <div class="row">
+          <button type="button" class="text" (click)="showArmor(key.id, 'public')" [disabled]="busy()">View public key</button>
+          <button type="button" class="text" (click)="showArmor(key.id, 'private')" [disabled]="busy()">View private key</button>
+          @if (confirmDelete() === key.id) {
+            <button type="button" class="danger" (click)="deleteKey(key.id)" [disabled]="busy()">Confirm delete?</button>
+          } @else {
+            <button type="button" class="text" (click)="confirmDelete.set(key.id)" [disabled]="busy()">Delete</button>
+          }
+        </div>
+      </div>
+    } @empty {
+      <p class="empty">No GPG key yet. Install <code>gnupg</code> (<code>sudo apt-get install -y gnupg</code>), then generate one below — or run <code>gpg --full-generate-key</code> in a terminal that has it.</p>
+    }
+    @if (armor(); as block) {
+      <label class="field">
+        <span>{{ armorKind() === 'public' ? 'Public key' : 'Private key — keep it secret' }} ({{ armorKeyId() }})</span>
+        <textarea readonly rows="12" spellcheck="false">{{ block }}</textarea>
+      </label>
+    }
+  }
+
+  <h3>Generate a key</h3>
+  <div class="form-grid">
+    <label class="field">
+      <span>Name</span>
+      <input type="text" placeholder="eg. Bob Builder" [ngModel]="formName()" (ngModelChange)="formName.set($event)" />
+    </label>
+    <label class="field">
+      <span>Email</span>
+      <input type="email" placeholder="eg. bob@example.com" [ngModel]="formEmail()" (ngModelChange)="formEmail.set($event)" />
+    </label>
+  </div>
+  <div class="row">
+    <button type="button" class="secondary" (click)="generate()" [disabled]="busy()">Generate GPG key</button>
+  </div>
+</section>

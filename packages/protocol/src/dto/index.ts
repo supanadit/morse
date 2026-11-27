@@ -18,3 +18,4 @@ export * from './view.js';
 export * from './bot.js';
 export * from './bot-bus.js';
 export * from './composer.js';
+export * from './keys.js';

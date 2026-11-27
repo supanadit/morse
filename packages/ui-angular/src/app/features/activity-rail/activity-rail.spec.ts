@@ -180,6 +180,14 @@ describe('ActivityRail', () => {
     expect(cog).not.toBeNull();
   });
 
+  it('shows the settings cog to a regular member for their own access keys', () => {
+    const fixture = renderAs('bob', 'regular');
+    const cog = fixture.nativeElement.querySelector(
+      '.views .entry[aria-label="Settings"]',
+    );
+    expect(cog).not.toBeNull();
+  });
+
   it('shows the settings menu from the cog without opening Members', () => {
     const fixture = renderAs('adit', 'admin');
     const shell = TestBed.inject(ShellState);

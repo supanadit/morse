@@ -139,8 +139,11 @@ COPY packages/morse-web/build.mjs packages/morse-web/package.json packages/morse
 RUN node packages/morse-web/build.mjs --server --ui
 
 # ---------------------------------------------------------------------------
-# Runtime layer — node, ezx, engines, the server bundle and the UI. No build
-# tools, no source, no morse CLI: server mode only.
+# Runtime layer — node, ezx, engines, the server bundle and the UI, plus the
+# standard development toolchain (git, compilers, pyenv build deps). No
+# source, no morse CLI: server mode only. The toolchain is deliberate: login
+# users have no sudo, so anything they build for themselves (nvm, pyenv,
+# Python packages with native extensions) must compile out of the box.
 # ---------------------------------------------------------------------------
 FROM toolchain AS runtime
 
@@ -163,7 +166,10 @@ COPY packages/morse-web/container/entrypoint.d /opt/morse/entrypoint.d
 # into the single workspaces volume: every login user is also a Linux user
 # whose home is `/home/<username>`, so one volume carries all trees and
 # `MORSE_WORKSPACE_ROOT` needs no second mount.
-RUN apt-get update && apt-get install -y --no-install-recommends passwd openssh-server sudo zsh acl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends passwd openssh-server openssh-client gnupg sudo zsh acl git build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libncursesw5-dev tk-dev libffi-dev liblzma-dev libxml2-dev libxmlsec1-dev && rm -rf /var/lib/apt/lists/* \
+    && /usr/sbin/groupadd -r workspace-users \
+    && printf '%s\n' 'morse ALL=(%workspace-users) NOPASSWD: /bin/zsh' > /etc/sudoers.d/morse-shells \
+    && chmod 0440 /etc/sudoers.d/morse-shells \
     && mkdir -p /workspaces \
     && rm -rf /home \
     && ln -s /workspaces /home \

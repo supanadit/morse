@@ -31,12 +31,11 @@ export class ActivityRail {
 
   protected readonly leftPane = this.shell.leftPane;
   /**
-   * The third entry: host settings, a cog, not a face. Single-user hosts have
-   * no `user`, so they see it too; only a regular signed-in user must not.
+   * The third entry: host settings, a cog, not a face. Everyone gets it:
+   * regular members manage their own access keys there, admins get Members
+   * and Providers too. The menu itself decides which sections to draw.
    */
-  protected readonly settingsVisible = computed(
-    () => this.morse.user() === null || this.morse.user()?.role === 'admin',
-  );
+  protected readonly settingsVisible = computed(() => true);
   protected readonly settingsOpen = computed(() => this.leftPane() === 'settings');
   /** The login user on multi-user hosts; absent everywhere else. */
   protected readonly currentUser = computed(() => this.morse.user());

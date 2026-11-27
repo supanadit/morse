@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -40,6 +40,25 @@ function ensureSshHostKey(home: string, logger: Logger): void {
 }
 
 /**
+ * Workspace-root fence for multi-user hosts: `<root>` itself is `0711` so a
+ * login can traverse into their own `<root>/<username>` without listing
+ * anyone else's directory name (each home is `2750` on top). Best-effort and
+ * boot-time, so an older image or a repaired volume cannot leave the root
+ * listable: where the server cannot chmod (not the owner) it logs and moves on.
+ */
+function ensureWorkspaceRootFence(config: MorseServerConfig, logger: Logger): void {
+  if (!config.multiuser || config.workspaceRoot === undefined) {
+    return;
+  }
+  try {
+    mkdirSync(config.workspaceRoot, { recursive: true });
+    chmodSync(config.workspaceRoot, 0o711);
+  } catch (error) {
+    logger.warn(`Could not fence ${config.workspaceRoot}: ${String(error)}`);
+  }
+}
+
+/**
  * Composition root entry point. Morse has two of these — this one and the VS
  * Code extension — and both wire the same core + adapter packages.
  */
@@ -74,6 +93,7 @@ async function bootstrap(): Promise<void> {
 
   const logger = new Logger('morse');
   ensureSshHostKey(config.dataDir, logger);
+  ensureWorkspaceRootFence(config, logger);
   logger.log(`Morse server listening on http://${config.host}:${config.port}`);
   logger.log(`WebSocket endpoint: ws://${config.host}:${config.port}${DEFAULT_WS_PATH}`);
   logger.log(`Frontend served from ${config.uiDir}`);

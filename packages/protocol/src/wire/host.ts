@@ -211,7 +211,27 @@ export type ServerHostCommand =
    */
   | 'adminUpdateUser'
   /** Delete one identity `{ userId }` (admin only, never the last admin). */
-  | 'adminDeleteUser';
+  | 'adminDeleteUser'
+  /** This member's SSH keys + authorized_keys (`{ userId? }` → `SshStatus`). */
+  | 'sshStatus'
+  /** Generate an SSH key for a member (`{ userId?, type? }` → `SshStatus`). */
+  | 'sshGenerate'
+  /** Delete one SSH key pair (`{ userId?, name }` → `SshStatus`). */
+  | 'sshDelete'
+  /** Read one private key (`{ userId?, name }` → `{ privateKey }`). */
+  | 'sshPrivate'
+  /** Replace `authorized_keys` (`{ userId?, keys }` → `SshStatus`). */
+  | 'authorizedKeysSave'
+  /** This member's GPG keys (`{ userId? }` → `GpgStatus`). */
+  | 'gpgStatus'
+  /** Generate a GPG key (`{ userId?, name?, email? }` → `GpgStatus`). */
+  | 'gpgGenerate'
+  /** Delete one GPG key (`{ userId?, keyId }` → `GpgStatus`). */
+  | 'gpgDelete'
+  /** The armored public key (`{ keyId? }` → `{ armor }`). */
+  | 'gpgPublic'
+  /** The armored private key (`{ keyId? }` → `{ armor }`). Keep it secret. */
+  | 'gpgPrivate';
 
 /**
  * Commands only the VS Code host answers: they reach into the editor, the workbench

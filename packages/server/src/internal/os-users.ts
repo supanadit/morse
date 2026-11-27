@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 
 /**
  * Real OS users for multi-user hosts (container only).
@@ -25,7 +26,15 @@ export function osUsersEnabled(): boolean {
 }
 
 /** The login shell every workspace user gets: their own `~/.zshrc` to keep. */
-const USER_SHELL = '/bin/zsh';
+export const USER_SHELL = '/bin/zsh';
+
+/**
+ * The supplementary group every Morse login user joins. It owns nothing, so
+ * membership grants no file access by itself — it exists only as sudo's
+ * target set: the server may run exactly this shell as exactly these users,
+ * never as root, never as itself.
+ */
+export const OS_USERS_GROUP = 'workspace-users';
 
 /** The home directory of a login user on OS-user hosts. */
 export function osUserHome(username: string): string {
@@ -79,8 +88,10 @@ export function ensureOsUser(username: string, warn: (message: string) => void):
   }
   // Default shadow behavior: private group `<user>`, primary group `<user>`.
   // `-M` because the workspace directory is the server's to create, not
-  // shadow's. No `-g morse`, no supplementary groups — a shared group would
-  // let every user into every home.
+  // shadow's. No `-g morse`, no shared primary group — a shared group would
+  // let every user into every home. `-G workspace-users` is the one shared
+  // membership, and it owns nothing: it is only sudo's target set, so the
+  // server can spawn a shell as exactly these users (never root, never morse).
   const created = sudo([
     '/usr/sbin/useradd',
     '-M',
@@ -88,6 +99,8 @@ export function ensureOsUser(username: string, warn: (message: string) => void):
     USER_SHELL,
     '-d',
     osUserHome(username),
+    '-G',
+    OS_USERS_GROUP,
     username,
   ]);
   if (!created.ok && !/already exists/i.test(created.error ?? '')) {
@@ -104,6 +117,9 @@ export function ensureOsUser(username: string, warn: (message: string) => void):
     }
   }
   sudo(['/usr/bin/gpasswd', '-d', username, 'morse']);
+  // Pre-group accounts (or a recreated container over a kept volume) rejoin
+  // the sudo target set on every login, idempotently.
+  sudo(['/usr/bin/gpasswd', '-a', username, OS_USERS_GROUP]);
   // Pre-zsh accounts keep their old shell unless repaired: every login
   // converges on it, idempotently.
   const shelled = sudo(['/usr/sbin/usermod', '-s', USER_SHELL, username]);
@@ -190,5 +206,72 @@ export function removeOsUser(username: string, warn: (message: string) => void):
   const removed = sudo(['/usr/sbin/userdel', username]);
   if (!removed.ok) {
     warn(`Could not remove OS user "${username}": ${removed.error}`);
+  }
+}
+
+/**
+ * Every provisioned home directory under the workspace root (full paths).
+ * Plain readdir, no sudo: the caller only reads names, and every grant still
+ * goes through the sudo'd helpers below.
+ */
+export function listOsHomes(root: string): string[] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => `${root}/${entry.name}`);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Lets one admin roam one home (`rwx`): an admin's SSH session goes anywhere
+ * while regular logins stay fenced to their own tree. The admin's own Morse
+ * fence is already global — this is the filesystem half. Never throws.
+ */
+export function grantOsHomeAdmin(admin: string, homePath: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const granted = sudo(['/usr/bin/setfacl', '-m', `u:${admin}:rwx`, homePath]);
+  if (!granted.ok) {
+    warn(`Could not grant "${admin}" access to "${homePath}": ${granted.error}`);
+  }
+}
+
+/** Removes one admin's roam on one home (demote, delete). Never throws. */
+export function revokeOsHomeAdmin(admin: string, homePath: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const revoked = sudo(['/usr/bin/setfacl', '-x', `u:${admin}`, homePath]);
+  if (!revoked.ok) {
+    warn(`Could not revoke "${admin}" on "${homePath}": ${revoked.error}`);
+  }
+}
+
+/**
+ * Lets one admin list the workspace root itself (`rx`): with the root at
+ * `0711`, a regular login cannot even learn another member's directory name,
+ * while an admin can. Never throws.
+ */
+export function grantOsRootAdmin(admin: string, root: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const granted = sudo(['/usr/bin/setfacl', '-m', `u:${admin}:rx`, root]);
+  if (!granted.ok) {
+    warn(`Could not grant "${admin}" listing on "${root}": ${granted.error}`);
+  }
+}
+
+/** Removes one admin's listing on the workspace root. Never throws. */
+export function revokeOsRootAdmin(admin: string, root: string, warn: (message: string) => void): void {
+  if (!osUsersEnabled()) {
+    return;
+  }
+  const revoked = sudo(['/usr/bin/setfacl', '-x', `u:${admin}`, root]);
+  if (!revoked.ok) {
+    warn(`Could not revoke "${admin}" listing on "${root}": ${revoked.error}`);
   }
 }

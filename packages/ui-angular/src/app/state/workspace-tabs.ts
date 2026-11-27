@@ -112,7 +112,7 @@ export interface SettingsTab {
   id: string;
   title: string;
   /** Which settings page this tab shows. More pages reuse the same shape. */
-  page: 'members' | 'providers';
+  page: 'members' | 'access' | 'gpg' | 'providers';
 }
 
 import type {
@@ -153,6 +153,8 @@ const FILE_PREFIX = 'file:';
 export const MCP_TAB_ID = 'mcp:servers';
 /** The settings pages the strip can show, by tab id. */
 export const SETTINGS_MEMBERS_TAB_ID = 'settings:members';
+export const SETTINGS_ACCESS_TAB_ID = 'settings:access';
+export const SETTINGS_GPG_TAB_ID = 'settings:gpg';
 export const SETTINGS_PROVIDERS_TAB_ID = 'settings:providers';
 
 /**
@@ -657,6 +659,26 @@ export class WorkspaceTabs {
     });
   }
 
+  /** Opens the Access page (SSH keys) under Access in the settings menu. */
+  openAccessPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_ACCESS_TAB_ID,
+      title: 'SSH keys',
+      page: 'access',
+    });
+  }
+
+  /** Opens the GPG page under Access in the settings menu. */
+  openGpgPage(): void {
+    this.focusOrOpen({
+      kind: 'settings',
+      id: SETTINGS_GPG_TAB_ID,
+      title: 'GPG keys',
+      page: 'gpg',
+    });
+  }
+
   /**
    * Focuses an open tab, or appends it. Every singleton page goes through here:
    * the tab store holds one list and one active id, whatever the tab shows.
@@ -984,13 +1006,31 @@ export class WorkspaceTabs {
     return this.items().some((tab) => tab.kind === 'settings');
   }
 
+  /** True while an admin-only settings page (Members, Providers) is open. */
+  hasAdminSettingsTabs(): boolean {
+    return this.items().some(
+      (tab) => tab.kind === 'settings' && tab.page !== 'access' && tab.page !== 'gpg',
+    );
+  }
+
   /**
    * Drops every admin settings page. Called when the signed-in user is not an
    * admin, so a workbench restored from a previous admin login cannot keep those
-   * pages alive for a regular user. No host command rides on these tabs.
+   * pages alive for a regular user. Access is self-service and stays.
+   * No host command rides on these tabs.
    */
   dropSettingsTabs(): void {
-    this.items.update((list) => list.filter((tab) => tab.kind !== 'settings'));
+    this.dropAdminSettingsTabs();
+  }
+
+  /** Drops admin-only settings pages, keeping the self-service Access page. */
+  dropAdminSettingsTabs(): void {
+    if (!this.hasAdminSettingsTabs()) {
+      return;
+    }
+    this.items.update((list) =>
+      list.filter((tab) => tab.kind !== 'settings' || tab.page === 'access' || tab.page === 'gpg'),
+    );
     const active = this.active();
     if (active !== undefined && !this.items().some((tab) => tab.id === active)) {
       this.setActive(this.items().find((tab) => tab.kind === 'session')?.id);

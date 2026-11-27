@@ -301,4 +301,124 @@ describe('MorseSessionFactory multi-user bundles', () => {
     expect(await resolveToken(db, token)).toBeUndefined();
     await forAdmin.dispose().catch(() => undefined);
   });
+
+  it('reserves the service account names at signup', async () => {
+    // A login named `morse` would own the service account's uid on OS-user
+    // hosts (and `root` would fail useradd) — neither may be created.
+    await expect(
+      createUser(db, { username: 'morse', password: 'supersecret' }),
+    ).rejects.toThrow();
+    await expect(createUser(db, { username: 'root', password: 'supersecret' })).rejects.toThrow();
+  });
+});
+
+describe('MorseSessionFactory terminal user shells', () => {
+  // A regular member's web shell runs as their own Linux uid (so the kernel
+  // fences `cd /home/someone-else`); admins keep the service account and roam.
+  const OLD_OS_USERS = process.env.MORSE_OS_USERS;
+
+  async function setup() {
+    const mem = newDb({ autoCreateForeignKeyIndices: true });
+    const memDb = mem.adapters.createKnex(0, { client: 'pg' }) as unknown as Knex;
+    await migrateToLatest(memDb, silentLogger);
+    const dataDir = mkdtempSync(join(tmpdir(), 'morse-shells-'));
+    const admin = await createUser(memDb, { username: 'adit', password: 'supersecret' });
+    const bob = await createUser(memDb, { username: 'bob', password: 'supersecret2' });
+    const seen: { terminalId: string; options: { command?: unknown } }[] = [];
+    const backend = {
+      attach: (terminalId: string, options: { command?: unknown }) => {
+        seen.push({ terminalId, options });
+        return { replay: '', write: () => undefined, resize: () => undefined, detach: () => undefined };
+      },
+      close: () => undefined,
+    };
+    const config = {
+      multiuser: true,
+      dataDir,
+      workspace: { cwd: '/work', name: 'work' },
+      projects: [],
+      updateCheck: false,
+      selfUpdate: false,
+    } as unknown as MorseServerConfig;
+    const fakeRegistry = {
+      subscribe: () => () => undefined,
+      onRemoval: () => () => undefined,
+      activeKeyOf: () => undefined,
+      hotKeys: () => [] as string[],
+      stateOf: () => undefined,
+      defaultWorkspace: { cwd: '/work', name: 'work' },
+      draftDefaults: async () => undefined,
+      listSessions: async () => [],
+      sessionCounts: async () => [] as [string, number][],
+      listProjects: async () => [],
+      searchSessions: async () => [],
+      dispose: async () => undefined,
+    };
+    const factory = new MorseSessionFactory(
+      fakeRegistry as never,
+      new SessionTranscriptStore(),
+      { canOpen: () => true } as never,
+      silentLogger,
+      config,
+      backend as never,
+      {
+        registrations: () => [],
+        defaultExtras: () => undefined,
+        engineOptions: () => [],
+        extrasFor: () => undefined,
+        registeredEngines: () => [],
+        dispose: async () => undefined,
+      } as never,
+      {} as never,
+      memDb,
+      undefined,
+    );
+    return { factory, memDb, dataDir, admin, bob, seen };
+  }
+
+  afterEach(() => {
+    if (OLD_OS_USERS === undefined) {
+      delete process.env.MORSE_OS_USERS;
+    } else {
+      process.env.MORSE_OS_USERS = OLD_OS_USERS;
+    }
+  });
+
+  it('spawns a regular member shell as their own uid and leaves admins alone', async () => {
+    // Pure rewrite: nothing here touches sudo, the filesystem, or a pty — the
+    // backend double records the options the lens rewrote.
+    process.env.MORSE_OS_USERS = '1';
+    const { factory, memDb, dataDir, admin, bob, seen } = await setup();
+    try {
+      const forBob = factory.createFor(() => undefined, {
+        user: { id: bob.id, username: 'bob', role: 'regular' },
+      });
+      await forBob.handleClientMessage({
+        type: 'terminal/open',
+        payload: { terminalId: 't1', cols: 80, rows: 24, cwd: '/work' },
+      });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.options.command).toEqual({
+        file: '/usr/bin/sudo',
+        args: ['-n', '-u', 'bob', '/bin/zsh'],
+      });
+      await forBob.dispose().catch(() => undefined);
+
+      const forAdmin = factory.createFor(() => undefined, {
+        user: { id: admin.id, username: 'adit', role: 'admin' },
+      });
+      await forAdmin.handleClientMessage({
+        type: 'terminal/open',
+        payload: { terminalId: 't2', cols: 80, rows: 24, cwd: '/work' },
+      });
+      expect(seen).toHaveLength(2);
+      // The service account roams by design; only members drop privilege.
+      expect(seen[1]?.options.command).toBeUndefined();
+      await forAdmin.dispose().catch(() => undefined);
+    } finally {
+      await factory.disposeBundles().catch(() => undefined);
+      await memDb.destroy().catch(() => undefined);
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });

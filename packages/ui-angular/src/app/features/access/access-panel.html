@@ -1,0 +1,70 @@
+<section class="access" aria-label="SSH keys">
+  <header class="page-head">
+    <div class="heading">
+      <h2>SSH keys</h2>
+      <p class="sub">Your own keys for logging in as this member. Or use a terminal: <code>ssh-keygen -t ed25519</code>.</p>
+    </div>
+    <div class="head-actions">
+      <button type="button" class="secondary" (click)="refresh()" [disabled]="loading()">Refresh</button>
+    </div>
+  </header>
+
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+  @if (notice(); as message) {
+    <p class="notice" role="status">{{ message }}</p>
+  }
+
+  <p class="hint">{{ ssh()?.home }}</p>
+  @if (loading() && !ssh()) {
+    <p class="empty">Loading SSH keys…</p>
+  } @else {
+    @for (key of ssh()?.keys ?? []; track key.name) {
+      <div class="key-card">
+        <div class="key-head">
+          <strong>{{ key.name }}</strong>
+          <span class="badge">{{ key.type }}</span>
+          <span class="spacer"></span>
+          @if (key.publicKey) {
+            <morse-copy-button [text]="key.publicKey" label="Copy" title="Copy public key" />
+          }
+          @if (key.hasPrivate) {
+            @if (privateName() === key.name && privateKey()) {
+              <button type="button" class="text" (click)="hidePrivate()" [disabled]="busy()">Hide</button>
+            } @else {
+              <button type="button" class="text" (click)="showPrivate(key.name)" [disabled]="busy()">Private key</button>
+            }
+          }
+          @if (confirmDelete() === key.name) {
+            <button type="button" class="danger" (click)="deleteSsh(key.name)" [disabled]="busy()">Confirm delete?</button>
+          } @else {
+            <button type="button" class="text" (click)="confirmDelete.set(key.name)" [disabled]="busy()">Delete</button>
+          }
+        </div>
+        <code class="pub" [title]="key.publicKey || '(no public key)'">{{ key.publicKey || '(no public key)' }}</code>
+        @if (privateName() === key.name && privateKey(); as priv) {
+          <label class="field">
+            <span class="warn">Private key — keep it secret</span>
+            <textarea readonly rows="6">{{ priv }}</textarea>
+          </label>
+        }
+      </div>
+    } @empty {
+      <p class="empty">No SSH key yet — generate one below or run <code>ssh-keygen -t ed25519</code> in a terminal.</p>
+    }
+    <div class="row">
+      <button type="button" class="secondary" (click)="generateSsh('ed25519')" [disabled]="busy()">Generate ed25519</button>
+      <button type="button" class="secondary" (click)="generateSsh('rsa')" [disabled]="busy()">Generate RSA</button>
+    </div>
+  }
+
+  <h3>authorized_keys</h3>
+  <p class="hint">One SSH public key per line. These keys may log in as this member.</p>
+  <label class="field">
+    <textarea rows="5" spellcheck="false" [ngModel]="authKeys()" (ngModelChange)="authKeys.set($event)"></textarea>
+  </label>
+  <div class="row">
+    <button type="button" class="primary" (click)="saveAuthorized()" [disabled]="busy()">Save authorized_keys</button>
+  </div>
+</section>

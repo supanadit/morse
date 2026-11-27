@@ -1,0 +1,21 @@
+/* GPG settings: mirrors the SSH panel's tokens. */
+.gpg { display: flex; flex-direction: column; gap: 12px; padding: 16px; max-width: 760px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.page-head h2 { margin: 0; font-size: 18px; }
+.sub { margin: 4px 0 0; opacity: 0.7; font-size: 13px; }
+.sub code, .empty code { font-family: monospace; }
+.head-actions { display: flex; gap: 8px; }
+.error { color: #f66; }
+.notice { color: #8f8; }
+.key-card { border: 1px solid #333; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.key-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.fp { font-family: monospace; font-size: 12px; opacity: 0.85; word-break: break-all; }
+.uid { opacity: 0.8; font-size: 13px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field textarea, .field input { background: #111; color: inherit; border: 1px solid #333; border-radius: 6px; padding: 8px; font-family: monospace; }
+.field input { font-family: inherit; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.empty { opacity: 0.7; }
+button.secondary, button.text, button.danger { cursor: pointer; }
+button.danger { color: #f66; background: transparent; border: 1px solid #633; border-radius: 6px; padding: 2px 10px; }

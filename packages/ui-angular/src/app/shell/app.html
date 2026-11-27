@@ -184,14 +184,15 @@
           <morse-file-explorer class="left-view" [hidden]="leftPane() !== 'files'" />
         }
         <!--
-          Host settings: the rail cog's menu. Mounted only for an admin — a
-          regular user whose layout still holds `leftPane: 'settings'` from a
-          previous admin login must not see the menu or its pages.
+          Host settings: the rail cog's menu. Admin pages stay behind
+          `settingsAllowed`, but Access is self-service — every signed-in
+          member (and single-user hosts) manages their own keys there.
         -->
-        @if (settingsAllowed()) {
+        @if (settingsAllowed() || accessAllowed()) {
           <morse-settings-nav
             class="left-view"
             [multiuser]="auth.status()?.multiuser ?? false"
+            [admin]="settingsAllowed()"
             [hidden]="leftPane() !== 'settings'"
           />
         }
@@ -398,6 +399,16 @@
         -->
         <div class="settings-scroll">
           <morse-admin-panel />
+        </div>
+      } @else if (activeSettingsPage() === 'access') {
+        <!-- Code-split like the prompt editor: out of the initial bundle. -->
+        <div class="settings-scroll">
+          <ng-container [ngComponentOutlet]="accessComponent()" />
+        </div>
+      } @else if (activeSettingsPage() === 'gpg') {
+        <!-- GPG has its own page: armored public/private views per key. -->
+        <div class="settings-scroll">
+          <ng-container [ngComponentOutlet]="gpgComponent()" />
         </div>
       } @else if (activeSettingsPage() === 'providers') {
         <!-- The settings menu's Providers page: connect models without a TUI. -->

@@ -107,8 +107,10 @@ export async function createUser(
   }
   // Usernames become workspace directory names (`<root>/<username>`) and, on
   // OS-user hosts, Linux usernames too — so portable characters only, nothing
-  // `useradd` refuses (no leading dash, 32 chars max), no dot-dirs.
-  if (!/^[a-z0-9._-]+$/.test(username) || username === '.' || username === '..' || /^-/.test(username) || username.length > 32) {
+  // `useradd` refuses (no leading dash, 32 chars max), no dot-dirs. `morse`
+  // and `root` are reserved: a login by either name would hand its owner the
+  // service account (or worse) instead of a fenced tree.
+  if (!/^[a-z0-9._-]+$/.test(username) || username === '.' || username === '..' || /^-/.test(username) || username.length > 32 || username === 'morse' || username === 'root') {
     throw new Error('A username may only contain a-z, 0-9, dot, underscore and dash.');
   }
   assertPassword(options.password);

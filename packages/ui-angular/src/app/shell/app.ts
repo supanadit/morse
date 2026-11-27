@@ -20,6 +20,8 @@ import { EmptySession } from '../features/empty/empty';
 import { McpPanel } from '../features/mcp-panel/mcp-panel';
 import { McpEditor } from '../features/mcp-editor/mcp-editor';
 import type { PromptEditor } from '../features/prompt-editor/prompt-editor';
+import type { AccessPanel } from '../features/access/access-panel';
+import type { GpgPanel } from '../features/gpg/gpg-panel';
 import { ChatTranscript } from '../features/transcript/transcript';
 import { FilePreview } from '../features/file-preview/file-preview';
 import { InteractionPanel } from '../features/interaction/interaction';
@@ -179,6 +181,12 @@ export class App {
     () => this.morse.user() === null || this.morse.user()?.role === 'admin',
   );
   /**
+   * The Access page is self-service: every signed-in member manages their own
+   * keys, and single-user hosts (`user` null) manage the host's own. Admin
+   * pages (Members, Providers) stay behind `settingsAllowed` above.
+   */
+  protected readonly accessAllowed = computed(() => !this.needsAuth());
+  /**
    * Bot definitions are managed by admins only (same rule as Settings above):
    * a persisted editor tab from a previous admin login must never render the
    * wizard's form for the regular user now signed in. The host refuses the
@@ -188,18 +196,21 @@ export class App {
     () => this.morse.user() === null || this.morse.user()?.role === 'admin',
   );
   protected readonly activeSettingsPage = computed(() => {
+    const tab = this.tabs.activeTab();
+    if (tab?.kind !== 'settings') {
+      return undefined;
+    }
+    // Self-service: any signed-in member (or a single-user host) sees Access.
+    if (tab.page === 'access' || tab.page === 'gpg') {
+      return this.accessAllowed() ? tab.page : undefined;
+    }
     if (!this.settingsAllowed()) {
       return undefined;
     }
-    const tab = this.tabs.activeTab();
-    if (
-      tab?.kind === 'settings' &&
-      tab.page === 'members' &&
-      this.auth.status()?.multiuser !== true
-    ) {
+    if (tab.page === 'members' && this.auth.status()?.multiuser !== true) {
       return undefined; // Single-user hosts have no Members page.
     }
-    return tab?.kind === 'settings' ? tab.page : undefined;
+    return tab.page;
   });
   /** Bot mode's panes: one chat per open room, one editor per open form. */
   protected readonly botTabs = computed(() =>
@@ -571,6 +582,21 @@ export class App {
   protected readonly promptEditorComponent = signal<typeof PromptEditor | null>(null);
   private promptEditorClass: typeof PromptEditor | null = null;
   private promptEditorLoading = false;
+  /**
+   * The Access page is code-split like the prompt editor: its class arrives
+   * from a dynamic import only while its tab is in front, keeping it out of
+   * the initial bundle.
+   */
+  protected readonly accessComponent = signal<typeof AccessPanel | null>(null);
+  private accessClass: typeof AccessPanel | null = null;
+  private accessLoading = false;
+  /**
+   * The GPG page is code-split the same way: out of the initial bundle until
+   * its own settings tab is in front.
+   */
+  protected readonly gpgComponent = signal<typeof GpgPanel | null>(null);
+  private gpgClass: typeof GpgPanel | null = null;
+  private gpgLoading = false;
   protected readonly projectPickerOpen = this.shell.projectPickerOpen;
   protected readonly aboutOpen = this.shell.aboutOpen;
   protected readonly shortcutsOpen = this.shell.shortcutsOpen;
@@ -692,14 +718,15 @@ export class App {
     // call site that could forget to switch the strip.
     this.tabs.setMode(this.mode());
     effect(() => this.tabs.setMode(this.mode()));
-    // A regular user must never inherit an admin's open settings pages. Tabs are
+    // A regular user must never inherit an admin's open admin pages. Tabs are
     // restored from the host workbench before the handshake names the user, so
     // drop them as soon as we know this connection is not an admin. The pages
     // themselves are gated by `settingsAllowed()` too, so the drop is defense in
-    // depth against a stale tab surviving a reload.
+    // depth against a stale tab surviving a reload. Access is self-service and
+    // stays: it is every member's own keys, not an admin surface.
     effect(() => {
-      if (!this.settingsAllowed() && this.tabs.hasSettingsTabs()) {
-        this.tabs.dropSettingsTabs();
+      if (!this.settingsAllowed() && this.tabs.hasAdminSettingsTabs()) {
+        this.tabs.dropAdminSettingsTabs();
       }
     });
     // A provider changed on this host (here or in another window): re-read the
@@ -982,6 +1009,62 @@ export class App {
       }
       void this.loadPromptEditor();
     });
+    // Load the Access page only while its settings tab is in front.
+    effect(() => {
+      if (this.activeSettingsPage() !== 'access') {
+        this.accessComponent.set(null);
+        return;
+      }
+      if (this.accessClass !== null) {
+        this.accessComponent.set(this.accessClass);
+        return;
+      }
+      void this.loadAccess();
+    });
+    // Load the GPG page only while its settings tab is in front.
+    effect(() => {
+      if (this.activeSettingsPage() !== 'gpg') {
+        this.gpgComponent.set(null);
+        return;
+      }
+      if (this.gpgClass !== null) {
+        this.gpgComponent.set(this.gpgClass);
+        return;
+      }
+      void this.loadGpg();
+    });
+  }
+
+  private async loadAccess(): Promise<void> {
+    if (this.accessLoading) {
+      return;
+    }
+    this.accessLoading = true;
+    try {
+      const { AccessPanel: Panel } = await import('../features/access/access-panel');
+      this.accessClass = Panel;
+      if (this.activeSettingsPage() === 'access') {
+        this.accessComponent.set(Panel);
+      }
+    } finally {
+      this.accessLoading = false;
+    }
+  }
+
+  private async loadGpg(): Promise<void> {
+    if (this.gpgLoading) {
+      return;
+    }
+    this.gpgLoading = true;
+    try {
+      const { GpgPanel: Panel } = await import('../features/gpg/gpg-panel');
+      this.gpgClass = Panel;
+      if (this.activeSettingsPage() === 'gpg') {
+        this.gpgComponent.set(Panel);
+      }
+    } finally {
+      this.gpgLoading = false;
+    }
   }
 
   private async loadPromptEditor(): Promise<void> {

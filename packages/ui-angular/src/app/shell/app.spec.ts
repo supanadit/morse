@@ -40,6 +40,7 @@ describe('App', () => {
     const tabs = TestBed.inject(WorkspaceTabs);
     const shell = TestBed.inject(ShellState);
     // A previous admin login left this page open in the restored workbench.
+    tabs.openAccessPage();
     tabs.openProvidersPage();
     shell.setLeftPane('settings');
     fixture.detectChanges();
@@ -54,7 +55,10 @@ describe('App', () => {
 
     expect(host.querySelector('morse-providers-panel')).toBeNull();
     expect(host.querySelector('morse-admin-panel')).toBeNull();
-    expect(tabs.hasSettingsTabs()).toBe(false);
+    // Admin pages are gone, but the self-service Access page survives: it is
+    // the regular user's own keys, not an admin surface.
+    expect(tabs.hasAdminSettingsTabs()).toBe(false);
+    expect(tabs.tabs().some((tab) => tab.kind === 'settings' && tab.page === 'access')).toBe(true);
   });
 
   it('renders the workspace reported by the host', () => {

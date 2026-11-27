@@ -18,6 +18,7 @@ import {
   type BotService,
   type MorseLogger,
   type TerminalBackend,
+  type TerminalOpenOptions,
 } from '@morse/system';
 import type { PiRpcAdapter } from '@morse/integration-pi';
 import {
@@ -28,7 +29,7 @@ import {
   PI_INSTALL_COMMAND,
 } from '@morse/integration-pi';
 import { OPENCODE_INSTALL_COMMAND } from '@morse/integration-opencode';
-import { ensureOsUser, ownOsHome } from '../os-users.js';
+import { ensureOsUser, grantOsHomeAdmin, grantOsRootAdmin, listOsHomes, osUserHome, osUsersEnabled, ownOsHome, revokeOsHomeAdmin, revokeOsRootAdmin, USER_SHELL } from '../os-users.js';
 import {
   HostSessionController,
   SessionTranscriptStore,
@@ -57,7 +58,19 @@ import {
 } from '../../app/tokens.js';
 import { PgSessionStore } from '../../db/pg-store.js';
 import { revokeUserTokens } from '../../db/tokens.js';
-import { createUser, deleteUser, listUsers, setUserRole, updateUser } from '../../db/users.js';
+import { createUser, deleteUser, findUserById, listUsers, setUserRole, updateUser } from '../../db/users.js';
+import {
+  deleteGpgKey,
+  deleteSshKey,
+  exportGpgPublic,
+  exportGpgSecret,
+  generateGpgKey,
+  generateSshKey,
+  gpgStatusFor,
+  readSshPrivate,
+  saveAuthorizedKeys,
+  sshStatusFor,
+} from '../user-keys.js';
 import {
   describeError,
   mcpScope,
@@ -279,7 +292,7 @@ export class MorseSessionFactory {
     const homed = this.config.workspaceRoot !== undefined;
     const admin = user.role === 'admin';
     const fenced = homed && !admin;
-    const cwd = homed ? join(this.config.workspaceRoot as string, user.username) : this.config.workspace.cwd;
+    const cwd = homed ? this.homeDirFor(user.username) : this.config.workspace.cwd;
     if (homed) {
       mkdirSync(cwd, { recursive: true });
     }
@@ -290,6 +303,17 @@ export class MorseSessionFactory {
     if (homed) {
       ensureOsUser(user.username, () => undefined);
       ownOsHome(user.username, cwd, (message) => this.logger.warn(message));
+      // Admins roam: every admin holds this fresh home (and the root listing),
+      // and a signing-in admin picks up every existing home — so neither a new
+      // tree nor a new grant ever waits on the other. Regulars stay fenced.
+      void this.grantAdminRoam(cwd);
+      if (admin) {
+        const warn = (message: string): void => this.logger.warn(message);
+        for (const home of listOsHomes(this.config.workspaceRoot as string)) {
+          grantOsHomeAdmin(user.username, home, warn);
+        }
+        grantOsRootAdmin(user.username, this.config.workspaceRoot as string, warn);
+      }
     }
     const policy = fenced ? new ServerProjectPolicy([cwd]) : this.policy;
     const userRouter = new AgentRouter({
@@ -373,7 +397,7 @@ export class MorseSessionFactory {
     ) {
       return undefined;
     }
-    return join(this.config.workspaceRoot, user.username);
+    return this.homeDirFor(user.username);
   }
 
   /**
@@ -389,8 +413,19 @@ export class MorseSessionFactory {
    * attach to (or close) another user's shell by id — and enforces that
    * user's fence, so a client-named cwd outside it never spawns. The shared
    * backend still owns the processes; this is only a per-connection lens.
+   *
+   * A regular member's interactive shell additionally runs as their own Linux
+   * uid (`sudo -u`), so the kernel fences what the spawn policy cannot: once
+   * inside, `cd /home/someone-else` is denied by the home modes, not just
+   * unadvised. Admins keep the service account (they roam), staged engine
+   * commands keep it too (they write host-wide config), and off-container
+   * hosts are untouched.
    */
-  private scopedTerminal(userId: string, policy: ServerProjectPolicy): TerminalBackend | undefined {
+  private scopedTerminal(
+    userId: string,
+    policy: ServerProjectPolicy,
+    user?: AuthUser | null,
+  ): TerminalBackend | undefined {
     const backend = this.terminal;
     if (backend === undefined) {
       return undefined;
@@ -403,9 +438,34 @@ export class MorseSessionFactory {
             `Morse is not allowed to run a terminal in ${options.cwd}.`,
           );
         }
-        return backend.attach(prefix + terminalId, options, sink);
+        return backend.attach(prefix + terminalId, this.userShell(user, options), sink);
       },
       close: (terminalId) => backend.close(prefix + terminalId),
+    };
+  }
+
+  /**
+   * Rewrites a plain shell open into `sudo -u <login> <shell>`: the pty then
+   * belongs to the member, and every `cd`, `ls` and redirect answers to their
+   * uid. Anything else passes through: a staged engine command (the login TUI
+   * writes the engine's own store), an admin (roams by design), an unknown
+   * caller, or a host without OS users.
+   */
+  private userShell(user: AuthUser | undefined | null, options: TerminalOpenOptions): TerminalOpenOptions {
+    if (
+      options.command !== undefined ||
+      !osUsersEnabled() ||
+      user?.role !== 'regular' ||
+      user.username === 'morse' ||
+      user.username === 'root'
+    ) {
+      return options;
+    }
+    // No shell metacharacters can ride along: the file and every argument are
+    // fixed strings, and the username passed validation at signup.
+    return {
+      ...options,
+      command: { file: '/usr/bin/sudo', args: ['-n', '-u', user.username, USER_SHELL] },
     };
   }
 
@@ -605,7 +665,7 @@ export class MorseSessionFactory {
           bundle?.policy ?? this.policy,
         ),
       // The bottom panel's shell, namespaced per user when `multiuser` is on.
-      terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId, bundle?.policy ?? this.policy),
+      terminal: userId === undefined ? this.terminal : this.scopedTerminal(userId, bundle?.policy ?? this.policy, user),
       takeTerminalCommand: (terminalId) => {
         const command = this.pendingTerminalCommands.get(terminalId);
         this.pendingTerminalCommands.delete(terminalId);
@@ -1077,9 +1137,13 @@ export class MorseSessionFactory {
         if (userId.length === 0) {
           throw new UnsupportedByHostError('adminSetRole needs a "userId" argument.');
         }
-        if (!(await setUserRole(db, userId, role))) {
+        const target = await findUserById(db, userId);
+        if (target === undefined || !(await setUserRole(db, userId, role))) {
           throw new UnsupportedByHostError('No such user.');
         }
+        // The filesystem roam follows the Morse role: a new admin goes
+        // everywhere, a demoted one keeps only their own home.
+        this.syncOsAdminRoam(target.username, role === 'admin');
         this.logger.info(`Admin ${user?.username} set ${userId} to ${role}.`);
         return { ok: true };
       }
@@ -1116,6 +1180,11 @@ export class MorseSessionFactory {
           if (patch.password !== undefined) {
             await revokeUserTokens(db, userId);
           }
+          // A role change through the edit form roams (or un-roams) the same
+          // as the dedicated role command above.
+          if (patch.role !== undefined) {
+            this.syncOsAdminRoam(updated.username, patch.role === 'admin');
+          }
           this.logger.info(`Admin ${user?.username} updated user ${userId}.`);
           return updated;
         } catch (error: unknown) {
@@ -1131,12 +1200,76 @@ export class MorseSessionFactory {
         if (userId === user?.id) {
           throw new UnsupportedByHostError('You cannot delete your own account.');
         }
+        const doomed = await findUserById(db, userId);
         const result = await deleteUser(db, userId);
         if (!result.deleted) {
           throw new UnsupportedByHostError(result.reason ?? 'No such user.');
         }
+        // A deleted admin's roam dies with the login (the home itself stays).
+        if (doomed !== undefined) {
+          this.syncOsAdminRoam(doomed.username, false);
+        }
         this.logger.info(`Admin ${user?.username} deleted user ${userId} (and their sessions).`);
         return { ok: true };
+      }
+      case 'sshStatus': {
+        const home = await this.keyHomeFor(args, user);
+        return sshStatusFor(home.path, home.username);
+      }
+      case 'sshGenerate': {
+        const home = await this.keyHomeFor(args, user);
+        const type = args?.type === 'rsa' ? 'rsa' : 'ed25519';
+        const status = generateSshKey(home.path, home.username, type);
+        this.logger.info(`${user?.username} generated an SSH key for "${home.username}".`);
+        return status;
+      }
+      case 'sshPrivate': {
+        const home = await this.keyHomeFor(args, user);
+        const name = typeof args?.name === 'string' ? args.name : '';
+        return { privateKey: readSshPrivate(home.path, name) };
+      }
+      case 'sshDelete': {
+        const home = await this.keyHomeFor(args, user);
+        const name = typeof args?.name === 'string' ? args.name : '';
+        const status = deleteSshKey(home.path, home.username, name);
+        this.logger.info(`${user?.username} deleted SSH key "${name}" for "${home.username}".`);
+        return status;
+      }
+      case 'authorizedKeysSave': {
+        const home = await this.keyHomeFor(args, user);
+        const keys = Array.isArray(args?.keys) ? (args.keys as unknown[]).filter((k): k is string => typeof k === 'string') : [];
+        const status = saveAuthorizedKeys(home.path, home.username, keys);
+        this.logger.info(`${user?.username} saved authorized_keys for "${home.username}".`);
+        return status;
+      }
+      case 'gpgStatus': {
+        const home = await this.keyHomeFor(args, user);
+        return gpgStatusFor(home.path, home.username);
+      }
+      case 'gpgPublic': {
+        const home = await this.keyHomeFor(args, user);
+        const keyId = typeof args?.keyId === 'string' ? args.keyId : undefined;
+        return { armor: exportGpgPublic(home.path, keyId) };
+      }
+      case 'gpgPrivate': {
+        const home = await this.keyHomeFor(args, user);
+        const keyId = typeof args?.keyId === 'string' ? args.keyId : undefined;
+        return { armor: exportGpgSecret(home.path, keyId) };
+      }
+      case 'gpgGenerate': {
+        const home = await this.keyHomeFor(args, user);
+        const name = typeof args?.name === 'string' ? args.name : undefined;
+        const email = typeof args?.email === 'string' ? args.email : undefined;
+        const status = generateGpgKey(home.path, home.username, name, email);
+        this.logger.info(`${user?.username} generated a GPG key for "${home.username}".`);
+        return status;
+      }
+      case 'gpgDelete': {
+        const home = await this.keyHomeFor(args, user);
+        const keyId = typeof args?.keyId === 'string' ? args.keyId : '';
+        const status = deleteGpgKey(home.path, home.username, keyId);
+        this.logger.info(`${user?.username} deleted GPG key "${keyId}" for "${home.username}".`);
+        return status;
       }
       case 'updateHost': {
         return this.updateHost(remoteAddress);
@@ -1212,6 +1345,90 @@ export class MorseSessionFactory {
       throw new UnsupportedByHostError('Only an admin can manage users.');
     }
     return this.db;
+  }
+
+  /**
+   * A login's home as the UI and sessions should show it. On OS-user hosts
+   * this is `/home/<username>` — the same directory as `<root>/<username>`
+   * (`/home` is a symlink into the single workspaces volume), but the home
+   * spelling is what SSH shows, so the physical volume path never leaks into
+   * the folder modal, tabs or terminals. Elsewhere the plain root join.
+   */
+  private homeDirFor(username: string): string {
+    if (this.config.workspaceRoot !== undefined && osUsersEnabled()) {
+      return osUserHome(username);
+    }
+    return join(this.config.workspaceRoot as string, username);
+  }
+
+  /**
+   * Home a key command acts on: always the caller's own home. Cross-user key
+   * management is not offered yet — even admins manage only their own keys —
+   * so naming another `userId` is refused rather than honored. The home is
+   * the member's workspace (`/home/<username>` on OS-user hosts), falling
+   * back to the host workspace; on OS-user hosts that directory is the SSH home.
+   */
+  private async keyHomeFor(
+    args: Record<string, unknown> | undefined,
+    user?: AuthUser | null,
+  ): Promise<{ path: string; username: string }> {
+    const requested = typeof args?.userId === 'string' ? args.userId : '';
+    if (requested.length > 0 && requested !== user?.id) {
+      throw new UnsupportedByHostError('Key management is self-service: you can only manage your own keys.');
+    }
+    const username = user?.username ?? 'local';
+    const path =
+      this.config.multiuser && this.config.workspaceRoot !== undefined
+        ? this.homeDirFor(username)
+        : (this.fenceFor(user) ?? this.config.workspace.cwd);
+    mkdirSync(path, { recursive: true });
+    return { path, username };
+  }
+
+  /**
+   * Grants every admin the roam on one fresh home (and the root listing), so
+   * a new tree never misses an existing admin. Async and best-effort:
+   * provisioning never blocks on it — the reverse direction (an admin signing
+   * in) is granted synchronously at the login site instead.
+   */
+  private async grantAdminRoam(homePath: string): Promise<void> {
+    if (this.db === undefined || this.config.workspaceRoot === undefined) {
+      return;
+    }
+    try {
+      const admins = await this.db('morse_users').where({ role: 'admin' }).select('username');
+      const warn = (message: string): void => this.logger.warn(message);
+      for (const row of admins as { username: string }[]) {
+        grantOsHomeAdmin(row.username, homePath, warn);
+        grantOsRootAdmin(row.username, this.config.workspaceRoot, warn);
+      }
+    } catch (error) {
+      this.logger.warn(`Could not grant admin access on "${homePath}": ${String(error)}`);
+    }
+  }
+
+  /**
+   * Keeps one member's filesystem roam in step with their Morse role: admins
+   * hold every home (and the root listing), regulars hold only their own.
+   * Homed hosts only; the helpers warn, never throw.
+   */
+  private syncOsAdminRoam(username: string, admin: boolean): void {
+    const root = this.config.workspaceRoot;
+    if (root === undefined) {
+      return;
+    }
+    const warn = (message: string): void => this.logger.warn(message);
+    if (admin) {
+      for (const home of listOsHomes(root)) {
+        grantOsHomeAdmin(username, home, warn);
+      }
+      grantOsRootAdmin(username, root, warn);
+    } else {
+      for (const home of listOsHomes(root)) {
+        revokeOsHomeAdmin(username, home, warn);
+      }
+      revokeOsRootAdmin(username, root, warn);
+    }
   }
 
   /**

@@ -82,5 +82,28 @@ for everyone: `~/.zshrc` is seeded once from the image and then yours alone.
   anyone (only `morse` holds three sudo entries), and `/workspaces` itself is
   `0711` so one user cannot even list another's directory name. Deleting the
   Morse user drops the login but keeps the home (their data).
+- The bottom-panel shell runs as the member's own uid (`sudo -u`, allowed for
+  exactly `/bin/zsh` as members of `workspace-users`, never root, never
+  `morse`), so the kernel fences what the spawn policy cannot: `cd
+  /home/someone-else` is denied even though the pty started fenced. Admins
+  keep the service account and roam (below); engine login TUIs do too, since
+  they write host-wide config. `morse` and `root` cannot sign up, so no login
+  ever lands on a privileged uid.
+- Admins roam: every admin holds `rwx` on every home and `rx` on `/workspaces`
+  itself, so an admin's SSH session goes anywhere (list, enter, edit) while
+  regulars stay fenced. The roam follows the Morse role — granted on promote
+  (and on every admin sign-in, for pre-existing trees), revoked on demote or
+  delete — and only ever touches the filesystem, never sudo.
 - Ports to publish: `:4399` (app) + `:2222` (SSH), both loopback-only in the
   quadlet.
+
+## Toolchain (user space, no sudo needed)
+
+The image ships `git`, a C/C++ toolchain and the pyenv build prerequisites
+(`libssl-dev`, `zlib1g-dev`, `libbz2-dev`, `libreadline-dev`, `libsqlite3-dev`,
+`libncursesw5-dev`, `tk-dev`, `libffi-dev`, `liblzma-dev`, `libxml2-dev`,
+`libxmlsec1-dev`). Version managers stay per-user installs — nvm and pyenv
+are intentionally not bundled — but every member can install their own
+without ever asking an admin, following the upstream guides
+([pyenv wiki](https://github.com/pyenv/pyenv/wiki)). Nothing a member builds
+touches another tree: it all lands under their own (fenced) home.
