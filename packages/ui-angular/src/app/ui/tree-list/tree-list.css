@@ -183,7 +183,7 @@ button.chevron:focus-visible {
   height: 6px;
   margin-right: -3px;
   border-radius: 50%;
-  background: var(--morse-accent);
+  background: var(--morse-error);
 }
 
 /*

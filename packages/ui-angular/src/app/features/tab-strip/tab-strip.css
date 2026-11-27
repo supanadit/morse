@@ -203,13 +203,13 @@
     transform: rotate(360deg);
   }
 }
-/* A finished session waiting to be read: a solid dot, no spin. */
+/* A finished session waiting to be read: a solid red dot, no spin. */
 .tab .unread-dot {
   flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--morse-accent);
+  background: var(--morse-error);
 }
 .tab.unread .label {
   font-weight: 600;

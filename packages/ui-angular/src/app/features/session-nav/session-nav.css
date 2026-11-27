@@ -297,7 +297,7 @@ ul {
   }
 }
 .session .mark.unread-dot {
-  background: var(--morse-accent);
+  background: var(--morse-error);
 }
 /* A finished session waiting to be read reads stronger than a plain row. */
 .session.unread .title {
