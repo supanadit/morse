@@ -197,6 +197,12 @@ jobs:
           # carry it over so `npm` itself is found. The package still lands in
           # the root-owned prefix, which is what this leg is about.
           sudo env PATH="$PATH" npm install -g --allow-scripts=@opencode/cli @opencode/cli
+          # The postinstall runs as root with HOME still pointing at the
+          # runner, so any state it creates there is root-owned and a later
+          # `opencode --version` as the runner dies writing its log file.
+          # Hand those paths back; the binary under the root-owned prefix is
+          # what this leg is about, not the data dir.
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/.local/share/opencode" "$HOME/.config/opencode" "$HOME/.opencode" 2>/dev/null || true
 
       - name: Install OpenCode into a custom prefix, exported from the shell profile only
         if: matrix.install == 'manual-path'
