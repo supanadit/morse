@@ -23,6 +23,9 @@ export function osUsersEnabled(): boolean {
   return process.env.MORSE_OS_USERS === '1';
 }
 
+/** The login shell every workspace user gets: their own `~/.zshrc` to keep. */
+const USER_SHELL = '/bin/zsh';
+
 /** The home directory of a login user on OS-user hosts. */
 export function osUserHome(username: string): string {
   return `/home/${username}`;
@@ -68,11 +71,18 @@ export function ensureOsUser(username: string, warn: (message: string) => void):
     '-d',
     osUserHome(username),
     '-s',
-    '/bin/bash',
+    USER_SHELL,
     username,
   ]);
   if (!created.ok && !/already exists/i.test(created.error ?? '')) {
     warn(`Could not create OS user "${username}": ${created.error}`);
+    return;
+  }
+  // Pre-zsh accounts keep their old shell unless repaired: every login
+  // converges on it, idempotently.
+  const shelled = sudo(['/usr/sbin/usermod', '-s', USER_SHELL, username]);
+  if (!shelled.ok) {
+    warn(`Could not set the shell for "${username}": ${shelled.error}`);
   }
 }
 
@@ -115,6 +125,18 @@ export function ownOsHome(username: string, path: string, warn: (message: string
   const flagged = sudo(['/usr/bin/chmod', '2770', path]);
   if (!flagged.ok) {
     warn(`Could not set the mode on "${path}": ${flagged.error}`);
+    return;
+  }
+  // Seed `~/.zshrc` once from the image skeleton — only when the user has
+  // none, so their edits are never clobbered.
+  const seeded = sudo(['/usr/bin/cp', '-n', '/etc/skel/.zshrc', `${path}/.zshrc`]);
+  if (!seeded.ok) {
+    warn(`Could not seed .zshrc for "${username}": ${seeded.error}`);
+    return;
+  }
+  const zshrc = sudo(['/usr/bin/chown', `${username}:morse`, `${path}/.zshrc`]);
+  if (!zshrc.ok) {
+    warn(`Could not hand .zshrc to "${username}": ${zshrc.error}`);
   }
 }
 

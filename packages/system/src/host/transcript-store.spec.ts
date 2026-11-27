@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '@morse/agent';
-import { SessionTranscriptStore } from './transcript-store.js';
+import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 
 /**
  * The store sits between the projector and the controller. Two things matter here:
@@ -80,6 +80,127 @@ describe('SessionTranscriptStore', () => {
     // A copy, not the projector's own array.
     store.items('s1').push({ kind: 'notice', id: 'n1', at: 3, level: 'info', text: 'x' });
     expect(store.items('s1')).toHaveLength(2);
+  });
+});
+
+/**
+ * The server owns the transcript: `bindTranscriptsToRegistry` projects live
+ * events straight off the registry, so the conversation keeps growing with
+ * zero clients attached (the device that started the session may disconnect).
+ * Controllers viewing the same session write through the same store, and the
+ * per-event identity guard makes the second write a no-op.
+ */
+describe('bindTranscriptsToRegistry live projection', () => {
+  function fakeSource() {
+    const removalListeners = new Set<(key: string) => void>();
+    const liveListeners = new Set<(tagged: { sessionKey: string; event: AgentEvent }) => void>();
+    return {
+      source: {
+        onRemoval: (listener: (key: string) => void) => {
+          removalListeners.add(listener);
+          return () => {
+            removalListeners.delete(listener);
+          };
+        },
+        subscribe: (listener: (tagged: { sessionKey: string; event: AgentEvent }) => void) => {
+          liveListeners.add(listener);
+          return () => {
+            liveListeners.delete(listener);
+          };
+        },
+      },
+      emit: (sessionKey: string, event: AgentEvent) => {
+        for (const listener of [...liveListeners]) {
+          listener({ sessionKey, event });
+        }
+      },
+    };
+  }
+
+  it('projects a session nobody is displaying, and drops it on removal', () => {
+    const { source, emit } = fakeSource();
+    const store = new SessionTranscriptStore();
+    const detach = bindTranscriptsToRegistry(source, store);
+
+    // No controller exists anywhere: the run still lands in the store.
+    emit('s1', { type: 'agent/delta', at: 1, channel: 'text', delta: 'hi' });
+    emit('s1', { type: 'agent/tool-start', at: 2, toolCallId: 'c1', name: 'read', title: 'read: a' });
+    emit('s1', { type: 'agent/tool-end', at: 3, toolCallId: 'c1', status: 'ok', output: 'done' });
+    emit('s1', { type: 'agent/message', at: 4, text: 'hi', thinking: '' });
+
+    expect(store.items('s1').map((item) => item.kind)).toEqual(['assistant', 'tool']);
+    detach();
+  });
+
+  it('records the model from state, and skips dialogs and liveness', () => {
+    const { source, emit } = fakeSource();
+    const store = new SessionTranscriptStore();
+    bindTranscriptsToRegistry(source, store);
+
+    emit('s1', {
+      type: 'agent/state',
+      at: 1,
+      state: {
+        workspace: { cwd: '/w', name: 'w' },
+        thinkingLevel: 'off',
+        availableModels: [],
+        availableThinkingLevels: [],
+        availableCommands: [],
+        streaming: true,
+        model: { provider: 'zai', id: 'glm-5.3-flash', name: 'GLM' },
+      },
+    });
+    emit('s1', {
+      type: 'agent/ready',
+      at: 2,
+      state: {
+        workspace: { cwd: '/w', name: 'w' },
+        thinkingLevel: 'off',
+        availableModels: [],
+        availableThinkingLevels: [],
+        availableCommands: [],
+        streaming: false,
+      },
+    });
+    emit('s1', {
+      type: 'agent/interaction',
+      at: 3,
+      request: { requestId: 'r1', kind: 'confirm', title: 'Sure?', message: 'sure?' },
+    });
+    store.userPrompt('s1', 'hello');
+    emit('s1', { type: 'agent/message', at: 4, text: 'hi', thinking: '' });
+
+    expect(store.items('s1').at(-1)).toMatchObject({ kind: 'assistant', model: 'glm-5.3-flash' });
+  });
+
+  it('a controller writing the same event instance stays a no-op', () => {
+    const { source, emit } = fakeSource();
+    const store = new SessionTranscriptStore();
+    bindTranscriptsToRegistry(source, store);
+    const seen: string[] = [];
+    store.subscribe((update) => seen.push(update.message.type));
+
+    const delta: AgentEvent = { type: 'agent/delta', at: 1, channel: 'text', delta: 'hey' };
+    emit('s1', delta);
+    // The viewing controller fans the same instance out again.
+    store.apply('s1', delta);
+
+    expect(seen.filter((type) => type === 'transcript/delta')).toHaveLength(1);
+    expect(store.items('s1')).toHaveLength(1);
+  });
+
+  it('detach stops projecting and drops the store', () => {
+    const { source, emit } = fakeSource();
+    const store = new SessionTranscriptStore();
+    const detach = bindTranscriptsToRegistry(source, store);
+    const spy = vi.fn();
+    store.subscribe(spy);
+
+    detach();
+    emit('s1', { type: 'agent/delta', at: 1, channel: 'text', delta: 'late' });
+
+    expect(store.items('s1')).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

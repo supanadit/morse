@@ -218,12 +218,16 @@ export class SessionTranscriptStore {
  */
 export interface TranscriptEvictionSource {
   onRemoval(listener: (key: string) => void): () => void;
+  subscribe(listener: (tagged: { sessionKey: string; event: AgentEvent }) => void): () => void;
 }
 
 /**
  * Ties a store's lifetime to the registry's live set: when a session closes —
  * an explicit close or a delete — its transcript and paging cursor are dropped
- * with it.
+ * with it. It also projects every live event into the store, so the transcript
+ * survives with zero clients attached: before this, only a controller showing
+ * the session fed its events in, and the device that started the session
+ * disconnecting meant the server-side copy went stale.
  *
  * This is the fix for the warm-transcript leak. The controller only cleared a
  * transcript when a *client* asked to close or delete a session; a session
@@ -239,9 +243,28 @@ export function bindTranscriptsToRegistry(
   registry: TranscriptEvictionSource,
   transcripts: SessionTranscriptStore,
 ): () => void {
-  const detach = registry.onRemoval((key) => transcripts.clear(key));
+  const detachRemoval = registry.onRemoval((key) => transcripts.clear(key));
+  // The server owns the transcript, not whichever client happens to be
+  // watching: live events are projected here, straight off the registry, so
+  // the conversation keeps growing while nobody displays it — the device that
+  // started the session may disconnect entirely. Controllers viewing the same
+  // session write through the same store, and `apply`'s per-event identity
+  // guard makes the second write of each fanned-out event a no-op. Dialogs
+  // (`agent/interaction`) and liveness (`agent/ready`) are not transcript
+  // content, and the model rides beside the transcript, as in the controller.
+  const detachLive = registry.subscribe(({ sessionKey, event }) => {
+    if (event.type === 'agent/ready' || event.type === 'agent/interaction') {
+      return;
+    }
+    if (event.type === 'agent/state') {
+      transcripts.setModel(sessionKey, event.state.model);
+      return;
+    }
+    transcripts.apply(sessionKey, event);
+  });
   return () => {
-    detach();
+    detachRemoval();
+    detachLive();
     transcripts.dispose();
   };
 }

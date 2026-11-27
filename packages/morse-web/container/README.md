@@ -71,7 +71,8 @@ created by hand (`CREATE DATABASE morse`), exactly like the other projects.
 Every Morse login is also a Linux user homed at `/home/<username>` with the
 same password — set it in Morse (first-run wizard, admin panel, or profile)
 and `ssh <username>@<host> -p 2222` lands in your workspace. Admins get one
-too; only their Morse fence is wider, not their home.
+too; only their Morse fence is wider, not their home. The login shell is zsh
+for everyone: `~/.zshrc` is seeded once from the image and then yours alone.
 
 - Provisioned on first login (and repaired on every login for pre-existing
   accounts); the SSH password follows each Morse password set. Accounts that
