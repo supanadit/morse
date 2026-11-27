@@ -2,10 +2,11 @@ import type { BotDeliveryReason } from '@morse/protocol';
 import { parseMentions } from './mentions.js';
 
 /**
- * The two decisions a per-bot lane makes before it takes work: whom a person's
- * message reaches, and whether a delivery must be refused instead of queued.
+ * The decisions a per-bot lane makes before it takes work: whom a person's
+ * message reaches, whom a bot's reply asks, and whether a delivery must be
+ * refused instead of queued.
  *
- * Both are pure. The lane owns the queue, the store and the turn; keeping the
+ * All are pure. The lane owns the queue, the store and the turn; keeping the
  * decisions here means routing and backstops can be tested — and reasoned about —
  * without an engine running or a file on disk.
  */
@@ -86,6 +87,35 @@ export function addressedBots({ text, members, lead, kind }: BotAddressInput): B
     return [{ username: member, reason: 'lead' }];
   }
   return members.map((username) => ({ username, reason: 'all' }));
+}
+
+/** What a lane knows about one bot's reply when it decides whom the reply asks. */
+export interface BotReplyInput {
+  /** The reply text, parsed for handles only. */
+  text: string;
+  /** The room's bots, in roster order. */
+  members: string[];
+  /** The bot that wrote the reply. */
+  self: string;
+  /** The bot whose ask this reply answers, when it is answering one. */
+  asker?: string;
+}
+
+/**
+ * Whom a bot's reply asks: the members it names by handle, the way a person's
+ * message does — so a group reads as one line from the asker and then the
+ * teammate's answer, never a second line saying the ask was sent.
+ *
+ * The asker is left out on purpose: a reply that names the bot that asked is an
+ * answer to it, not a new ask, and routing it would ping-pong the two until the
+ * depth cap. `@all` is left to people — a bot must name whom it is talking to —
+ * and a bot never routes to itself.
+ */
+export function replyAddressedBots({ text, members, self, asker }: BotReplyInput): BotAddress[] {
+  const { targets } = parseMentions(text, members);
+  return targets
+    .filter((username) => username !== self && username !== asker)
+    .map((username) => ({ username, reason: 'mention' }));
 }
 
 /**

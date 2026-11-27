@@ -434,6 +434,13 @@ highlight and Enter.
 - `@all` / `@everyone` sit in a `Special mentions` section in a group, and are hidden in a direct message where
   they would mean what a plain line already does. The host already expanded them in `parseMentions`, so the list
   is the only new part.
+- A bot's reply is routed the same way (`replyAddressedBots` in `packages/system/src/bot/bus.ts`): a group
+  reply that names a member by handle **asks** it, so the room reads as one line from the asker and then the
+  teammate's answer — never a relay line *and* a summary from the same bot. Only a reply that settled normally
+  asks (a stopped or failed turn asks nobody); the asker is never woken by an answer to its own ask; `@all` is
+  left to people; and the ask spends the sender's bus budget exactly as a `bot_send` would, with a note in the
+  room when it is dropped. `bot_send` is for a bot **not** in the room: in a group it refuses and points at the
+  mention, so the bot learns the habit inside the turn.
 
 ### Model limits are the reader's to state
 

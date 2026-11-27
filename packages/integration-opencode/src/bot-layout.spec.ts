@@ -59,6 +59,13 @@ describe('openCodeBotLayout', () => {
     subagents: [{ name: 'reviewer', prompt: 'Read the diff.\nSecond line.' }],
   };
 
+/** The bus plugin's tools, as every generated ruleset allows them. */
+const busAllows = ['bot_list', 'bot_send', 'human_list', 'human_send'].map((action) => ({
+  action,
+  resource: '*',
+  effect: 'allow',
+}));
+
   it('writes opencode.json where the bot server reads it, with the schema', () => {
     writeOpenCodeBotConfig(botRoot, config);
 
@@ -395,7 +402,7 @@ describe('openCodeBotLayout', () => {
     mkdirSync(join(botRoot, 'config', 'opencode', 'plugins'), { recursive: true });
     writeFileSync(
       path,
-      `${OPENCODE_BUS_PLUGIN_START.replace('v2', 'v0')}\nexport default {};\n// morse-bot-bus:end\n`,
+      `${OPENCODE_BUS_PLUGIN_START.replace(/v\d+/, 'v0')}\nexport default {};\n// morse-bot-bus:end\n`,
     );
 
     openCodeBotLayout.repair?.(botRoot);
@@ -526,6 +533,7 @@ describe('openCodeBotLayout', () => {
         { action: 'read', resource: '*', effect: 'allow' },
         { action: 'shell', resource: '*', effect: 'allow' },
         { action: 'external_directory', resource: '*', effect: 'allow' },
+        ...busAllows,
       ],
       instructions: [openCodeInstructionPath(botRoot)],
     });
@@ -607,6 +615,7 @@ describe('openCodeBotLayout', () => {
           { action: 'read', resource: '*', effect: 'allow' },
           { action: 'shell', resource: '*', effect: 'allow' },
           { action: 'external_directory', resource: '*', effect: 'allow' },
+          ...busAllows,
         ],
         instructions: [openCodeInstructionPath(botRoot)],
       },
@@ -637,6 +646,7 @@ describe('openCodeBotLayout', () => {
       { action: 'read', resource: '*', effect: 'allow' },
       { action: 'shell', resource: '*', effect: 'allow' },
       { action: 'external_directory', resource: '*', effect: 'allow' },
+      ...busAllows,
     ]);
     expect(existsSync(botUserSpacePluginPath(botRoot))).toBe(true);
   });
@@ -696,6 +706,7 @@ describe('openCodeBotLayout', () => {
       { action: 'subagent', resource: '*', effect: 'allow' },
       { action: 'webfetch', resource: '*', effect: 'allow' },
       { action: 'external_directory', resource: '*', effect: 'allow' },
+      ...busAllows,
     ]);
     expect(openCodeBotLayout.read(botRoot).tools).toEqual([
       'read',
@@ -713,6 +724,7 @@ describe('openCodeBotLayout', () => {
     expect(file.agents['morse']?.['permissions']).toEqual([
       { action: '*', resource: '*', effect: 'deny' },
       { action: 'shell', resource: '*', effect: 'allow' },
+      ...busAllows,
     ]);
 
     writeOpenCodeBotConfig(botRoot, { ...config, tools: ['read'] });
@@ -727,15 +739,19 @@ describe('openCodeBotLayout', () => {
     expect(openCodeBotLayout.read(botRoot).tools).toEqual(['read']);
   });
 
-  it('keeps only the deny when no tools are chosen', () => {
+  it('keeps only the deny and the bus tools when no tools are chosen', () => {
     writeOpenCodeBotConfig(botRoot, { ...config, tools: [] });
 
     const file = JSON.parse(readFileSync(openCodeConfigPath(botRoot), 'utf8')) as {
       agents: Record<string, Record<string, unknown>>;
     };
+    // The bus plugin is always installed, so its tools are never the reader's
+    // to withhold; under the deny alone they would be hidden from the model.
     expect(file.agents['morse']?.['permissions']).toEqual([
       { action: '*', resource: '*', effect: 'deny' },
+      ...busAllows,
     ]);
+    // And they are not a choice the form shows.
     expect(openCodeBotLayout.read(botRoot).tools).toEqual([]);
   });
 

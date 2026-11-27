@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import {
   PI_BUS_EXTENSION_FILE,
   PI_BUS_EXTENSION_START,
@@ -14,10 +15,26 @@ import {
 describe('piBusExtensionSource', () => {
   it('names the file pi auto-loads and wraps it in the markers repair reads', () => {
     expect(PI_BUS_EXTENSION_FILE).toBe('morse-bot-bus.ts');
-    expect(PI_BUS_EXTENSION_START).toBe('// morse-bot-bus:start v2');
+    expect(PI_BUS_EXTENSION_START).toBe('// morse-bot-bus:start v3');
     const source = piBusExtensionSource();
     expect(source.startsWith(`${PI_BUS_EXTENSION_START}\n`)).toBe(true);
     expect(source.trimEnd().endsWith('// morse-bot-bus:end')).toBe(true);
+  });
+
+  it('parses as TypeScript, so pi can load it', () => {
+    // The source is a template literal here: an apostrophe inside one of its
+    // single-quoted strings is a syntax error pi reports only by loading no tools.
+    const file = ts.createSourceFile(
+      PI_BUS_EXTENSION_FILE,
+      piBusExtensionSource(),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    expect(
+      file.parseDiagnostics.map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '),
+      ),
+    ).toEqual([]);
   });
 
   it('registers both tools and reads its endpoint from the environment', () => {

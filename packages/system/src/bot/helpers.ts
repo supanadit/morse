@@ -116,7 +116,7 @@ export function attachmentSummary(images: number, files: number): string {
 
 /** The brief an unaddressed group message prefixes onto its lead's prompt. */
 export function leadBrief(title: string): string {
-  return `You are the lead of the group "${title}". Answer, or ask a member with bot_send.`;
+  return `You are the lead of the group "${title}". Answer, or ask a member by @handle in your reply.`;
 }
 
 /** The default answer to one engine question. */

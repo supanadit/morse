@@ -623,8 +623,10 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-/** The line a group's first prompt opens with: who is in the room, by handle. */
-const room = 'Group "Launch" — members: Forge (@forge), Sable (@sable).';
+/** The line every group prompt carries: who is in the room, by handle, and that the person is there. */
+const room =
+  'Group "Launch" — members: Forge (@forge), Sable (@sable). ' +
+  'The person is in this room too and reads everything written here.';
 
 /** The host person tests run as: prompts name the speaker, so expectations do too. */
 const SPEAKER = hostPerson().name;
@@ -2025,8 +2027,9 @@ describe('BotService rounds', () => {
     await service.send(group.id, '@forge third');
     await settle(service, group.id);
     const forge = gatewayFor(adapter, 'forge');
+    // The room is named again — it is told every turn — but nothing is repeated.
     expect(forge.prompts[1]).toBe(
-      `${HUMAN_LINE}\n\n[Launch] ${SPEAKER}: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] ${SPEAKER}: @forge third`,
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] ${SPEAKER}: @forge third`,
     );
     expect(forge.prompts[1]).not.toContain('forge reply 1');
     // Nothing is sent twice: the mark advanced with every accepted prompt.
@@ -2096,8 +2099,11 @@ describe('BotService rounds', () => {
       .filter((candidate) => basename(candidate.botRoot) === 'sable')
       .at(-1);
     // Only the new line: the engine session id and the mark both persisted, so the
-    // resumed session is neither re-introduced nor replayed.
-    expect(newest?.gateways[0]?.prompts).toEqual([`${HUMAN_LINE}\n\n[Launch] ${SPEAKER}: @sable and now`]);
+    // resumed session is told the room again — every turn is — but is not
+    // replayed what it already read.
+    expect(newest?.gateways[0]?.prompts).toEqual([
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @sable and now`,
+    ]);
   });
 
   it('a graceful shutdown requeues the in-flight ask instead of losing it', async () => {
@@ -2141,7 +2147,7 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
-      'You are the lead of the group "Launch". Answer, or ask a member with bot_send.\n\n' +
+      'You are the lead of the group "Launch". Answer, or ask a member by @handle in your reply.\n\n' +
         `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: what next`,
     ]);
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
@@ -2168,8 +2174,8 @@ describe('BotService rounds', () => {
     ]);
   });
 
-  it('a bot’s reply queues nothing and writes no chain note', async () => {
-    const { adapter, service } = harness({
+  it('a bot’s reply asks the member it names, and the answer is a line in the room', async () => {
+    const { root, adapter, service } = harness({
       script: ({ bot }) => ({ text: bot === 'forge' ? '@sable take over' : 'Sable here' }),
     });
     await twoBots(service);
@@ -2182,15 +2188,67 @@ describe('BotService rounds', () => {
     await service.send(group.id, 'go');
     await settle(service, group.id);
 
-    // The mention is text now: a bot that wants a teammate calls `bot_send`.
-    expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
+    // One question, one ask, one answer, each from the bot that said it. The ask
+    // is Forge's own line: nothing is written on its behalf, and nothing says
+    // the ask was sent — so the room never shows two lines from the same bot.
     expect(
       service
         .transcript(group.id)
-        .filter((entry) => entry.author.role === 'system')
-        .map((entry) => entry.text),
-    ).toEqual([]);
+        .map((entry) => [entry.author.role, entry.author.name, entry.text]),
+    ).toEqual([
+      ['user', SPEAKER, 'go'],
+      ['bot', 'Forge', '@sable take over'],
+      ['bot', 'Sable', 'Sable here'],
+    ]);
+    const rows = deliveriesOf(root, group.id);
+    expect(rows.map((row) => [row.to, row.reason, row.depth])).toEqual([
+      ['forge', 'lead', 0],
+      ['sable', 'mention', 1],
+    ]);
+    expect(rows[1]).toMatchObject({
+      from: { type: 'bot', username: 'forge' },
+      kind: 'message',
+      rootId: rows[0]?.rootId,
+      entryId: service.transcript(group.id)[1]?.id,
+    });
+    // Sable reads the room up to the line that named it, marked as a bot's.
+    const prompts = gatewayFor(adapter, 'sable').prompts;
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain('[From Forge (@forge) — another bot in this room, not the person.');
+    expect(prompts[0]).toContain(room);
+    expect(prompts[0]).toContain('[Launch] Forge: @sable take over');
+    expect(prompts[0]).not.toContain('[Launch] Sable:');
     expect(service.routing(group.id)).toBeNull();
+  });
+
+  it('a reply that names the bot that asked wakes nobody', async () => {
+    const { adapter, service } = harness({
+      script: ({ bot }) => ({
+        text: bot === 'forge' ? '@sable take over' : '@forge all yours',
+      }),
+    });
+    await twoBots(service);
+    const group = service.createGroup({
+      name: 'Launch',
+      members: ['forge', 'sable'],
+      lead: 'forge',
+    });
+
+    await service.send(group.id, 'go');
+    await settle(service, group.id);
+
+    // Sable's answer names Forge back: that is the answer, not a second ask, so
+    // Forge takes one turn and the room stays at two bot lines.
+    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(1);
+    expect(
+      service
+        .transcript(group.id)
+        .filter((entry) => entry.author.role === 'bot')
+        .map((entry) => entry.text),
+    ).toEqual(['@sable take over', '@forge all yours']);
+    expect(service.transcript(group.id).some((entry) => entry.author.role === 'system')).toBe(
+      false,
+    );
   });
 
   it('stop aborts the running turn and cancels the queue behind it', async () => {
@@ -3099,37 +3157,22 @@ describe('BotService bus', () => {
     await settle(service, 'dm-sigil');
   });
 
-  it('sends into the room the caller is answering in', async () => {
+  it('refuses a send to a bot in the caller’s group and points at the mention', async () => {
     const { root, adapter, service } = harness({ script: holdsPersonTurns });
     await busBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
     const held = await holdTurn(service, adapter, group.id, 'sigil');
 
-    const result = await service.busSend('sigil', { to: 'loom', text: 'name it' });
+    await expect(service.busSend('sigil', { to: 'loom', text: 'name it' })).rejects.toThrow(
+      /@loom is in this room with you: write to them as @loom in your reply/,
+    );
 
-    expect(result).toMatchObject({ conversationId: group.id, queued: true });
-    const rows = deliveriesOf(root, group.id);
-    const sent = rows.find((row) => row.id === result.deliveryId);
-    // The room shows who asked whom, and the delivery points at that line.
-    const line = service
-      .transcript(group.id)
-      .find((entry) => entry.id === sent?.entryId);
-    expect(line).toMatchObject({
-      author: { role: 'bot', name: 'Sigil', username: 'sigil' },
-      text: '@loom name it',
-    });
-    expect(sent).toMatchObject({
-      conversationId: group.id,
-      entryId: line?.id,
-      from: { type: 'bot', username: 'sigil' },
-      to: 'loom',
-      kind: 'message',
-      reason: 'bot',
-      depth: 1,
-    });
-    // One trigger, one root: the send descends from the turn it was made in.
-    expect(sent?.rootId).toBe(rows[0]?.rootId);
-    expect(rows[0]?.depth).toBe(0);
+    // Nothing was written or queued: the reply is the ask, or the room would
+    // show a relay line and a summary from the same bot.
+    expect(service.transcript(group.id).filter((entry) => entry.author.role === 'bot')).toEqual(
+      [],
+    );
+    expect(deliveriesOf(root, group.id).map((row) => row.reason)).toEqual(['mention']);
 
     held.release();
     await settle(service, group.id);
@@ -3725,7 +3768,7 @@ describe('BotService bus', () => {
   it('refuses a turn file whose trigger or depth was edited', async () => {
     const { adapter, service } = harness({ script: holdsPersonTurns });
     await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
     await holdTurn(service, adapter, group.id, 'sigil');
     const paths = service.botBusPaths('sigil');
     const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
@@ -3751,12 +3794,14 @@ describe('BotService bus', () => {
     // Restored, it is the live turn again: the refusal is about the file.
     writeFileSync(paths.turnFile, JSON.stringify(live));
     await expect(service.busSend('sigil', { to: 'loom', text: 'honest' })).resolves.toMatchObject({
-      conversationId: group.id,
+      conversationId: 'thread-loom-sigil',
       queued: true,
     });
 
     service.stop(group.id);
+    service.stop('thread-loom-sigil');
     await settle(service, group.id);
+    await settle(service, 'thread-loom-sigil');
   });
 
   it('reports inRoom from the live turn and false for everyone without one', async () => {
@@ -3782,40 +3827,34 @@ describe('BotService bus', () => {
     expect(service.busRoster('sigil').some((entry) => entry.inRoom)).toBe(false);
   });
 
-  it('drops a send one hop past the depth limit, with a note', async () => {
-    // A real chain, not a hand-written file: each bot forwards once from inside
-    // its own turn, so every delivery's depth is the one the host queued it with.
-    let hop = 0;
-    let bus: BotService | undefined;
-    const sends: Promise<unknown>[] = [];
+  it('drops a reply’s ask one hop past the depth limit, with a note', async () => {
+    // A real cycle, not a hand-written file: each bot names the next one in its
+    // reply, so every delivery's depth is the one the host queued it with.
+    const next: Record<string, string> = { sigil: 'loom', loom: 'sage', sage: 'sigil' };
     const { root, service } = harness({
-      script: ({ bot }) => {
-        hop += 1;
-        const target = bot === 'sigil' ? 'loom' : 'sigil';
-        sends.push(bus!.busSend(bot, { to: target, text: `hop ${hop}` }).catch((error: unknown) => error));
-        return { text: `${bot} hop ${hop}` };
-      },
+      script: ({ bot }) => ({ text: `@${next[bot]} hop` }),
     });
-    bus = service;
     await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    await service.createBot(
+      botInput({ username: 'sage', name: 'Sage', description: 'Closes the loop' }),
+    );
+    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom', 'sage'] });
 
     await service.send(group.id, '@sigil start');
     await settle(service, group.id);
 
-    // Five turns: the person's, then four forwards. The fifth forward would be
-    // depth 5 — one past the cap — so it is noted and nothing is queued.
-    const results = await Promise.all(sends);
-    expect(results.at(-1)).toEqual({
-      deliveryId: '',
-      conversationId: group.id,
-      queued: false,
-    });
+    // Five turns after the person's: Sigil, Loom, Sage, Sigil, Loom. The sixth
+    // would be depth 5 — one past the cap — so it is noted and nothing is queued.
     expect(
       deliveriesOf(root, group.id)
-        .filter((row) => row.reason === 'bot')
-        .map((row) => row.depth),
-    ).toEqual([1, 2, 3, 4]);
+        .filter((row) => row.from.type === 'bot')
+        .map((row) => [row.to, row.reason, row.depth]),
+    ).toEqual([
+      ['loom', 'mention', 1],
+      ['sage', 'mention', 2],
+      ['sigil', 'mention', 3],
+      ['loom', 'mention', 4],
+    ]);
     const notes = service
       .transcript(group.id)
       .filter((entry) => entry.author.role === 'system')
@@ -3823,16 +3862,21 @@ describe('BotService bus', () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain(`past the depth limit of ${BUS_LIMITS.depth}`);
     // The note names the bot that was not asked, the root and the reason, so a
-    // reader can tell a loop from a bot that stopped talking.
-    expect(notes[0]).toContain('Loom');
+    // reader can tell a loop from a bot that simply stopped talking.
+    expect(notes[0]).toContain('Sage');
     expect(notes[0]).toContain('root ');
-    expect(notes[0]).toContain('reason bot');
+    expect(notes[0]).toContain('reason mention');
   });
 
   it('takes the delivery that reaches the per-root limit and drops the next with a note', async () => {
-    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    const thread = 'thread-loom-sigil';
+    const { root, adapter, service } = harness({
+      // Loom's first turn in the thread holds, so every ask behind it stays
+      // queued and the root is counted, not answered.
+      script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
+    });
     await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
     await holdTurn(service, adapter, group.id, 'sigil');
 
     // The person's line is one delivery of this root; the bot sends fill the
@@ -3841,13 +3885,14 @@ describe('BotService bus', () => {
       const result = await service.busSend('sigil', { to: 'loom', text: `filled ${index}` });
       expect(result.queued).toBe(true);
     }
-    expect(deliveriesOf(root, group.id)).toHaveLength(BUS_LIMITS.perRoot);
+    expect(deliveriesOf(root, group.id)).toHaveLength(1);
+    expect(deliveriesOf(root, thread)).toHaveLength(BUS_LIMITS.perRoot - 1);
 
     const refused = await service.busSend('sigil', { to: 'loom', text: 'one too many' });
 
     expect(refused).toEqual({ deliveryId: '', conversationId: group.id, queued: false });
     // Nothing was added: the root stays at its limit, and the room says why.
-    expect(deliveriesOf(root, group.id)).toHaveLength(BUS_LIMITS.perRoot);
+    expect(deliveriesOf(root, thread)).toHaveLength(BUS_LIMITS.perRoot - 1);
     expect(
       service
         .transcript(group.id)
@@ -3857,7 +3902,9 @@ describe('BotService bus', () => {
     ).toBe(true);
 
     service.stop(group.id);
+    service.stop(thread);
     await settle(service, group.id);
+    await settle(service, thread);
   });
 
   it('refuses a bot’s sixty-first send in an hour', async () => {
@@ -3868,7 +3915,7 @@ describe('BotService bus', () => {
       script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
     });
     await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
+    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
 
     // A root takes 48 deliveries, the person's line included, so the hour is
     // filled from two roots: 47 here, then 13 more — 60 in all. The one past
@@ -4121,23 +4168,31 @@ describe('BotService answers', () => {
   });
 
   it('leaves a group answer alone', async () => {
-    const { root, adapter, service } = harness({ script: holdsPersonTurns });
+    const { root, adapter, service } = harness({
+      script: ({ prompt }) =>
+        prompt.startsWith('[From ') ? { text: 'weighed in' } : { text: '@loom weigh in' },
+    });
     await busBots(service);
     const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom'] });
-    const held = await holdTurn(service, adapter, group.id, 'sigil');
-    await service.busSend('sigil', { to: 'loom', text: 'weigh in' });
-    held.release();
+    await service.send(group.id, '@sigil go');
     await settle(service, group.id);
 
     // A group is person-facing: Loom's answer is a normal line in it, and no
-    // delivery, note or lead line pretends it was a delegated answer.
+    // delivery, note or lead line pretends it was a delegated answer. Nobody
+    // wakes Sigil to pass the answer on: the person reads it where it landed.
     const lines = service.transcript(group.id);
-    expect(lines.some((entry) => entry.author.role === 'bot' && entry.text === 'answered')).toBe(
-      true,
-    );
-    expect(lines.some((entry) => entry.text.includes('private thread'))).toBe(false);
+    expect(
+      lines
+        .filter((entry) => entry.author.role === 'bot')
+        .map((entry) => [entry.author.username, entry.text]),
+    ).toEqual([
+      ['sigil', '@loom weigh in'],
+      ['loom', 'weighed in'],
+    ]);
+    expect(lines.some((entry) => entry.author.role === 'system')).toBe(false);
     expect(deliveriesOf(root, group.id).filter((row) => row.kind === 'reply')).toEqual([]);
     expect(gatewayFor(adapter, 'loom').prompts[0]).not.toContain('answered the ask you sent');
+    expect(gatewayFor(adapter, 'sigil').prompts).toHaveLength(1);
   });
 
   it('answers a person in a thread in place', async () => {

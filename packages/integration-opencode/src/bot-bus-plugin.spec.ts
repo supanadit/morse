@@ -21,7 +21,7 @@ import {
 describe('openCodeBusPluginSource', () => {
   it('names the file OpenCode discovers and wraps it in the markers repair reads', () => {
     expect(OPENCODE_BUS_PLUGIN_FILE).toBe('morse-bot-bus.ts');
-    expect(OPENCODE_BUS_PLUGIN_START).toBe('// morse-bot-bus:start v2');
+    expect(OPENCODE_BUS_PLUGIN_START).toBe('// morse-bot-bus:start v3');
     expect(OPENCODE_BUS_PLUGIN_END).toBe('// morse-bot-bus:end');
     const source = openCodeBusPluginSource();
     expect(source.startsWith(`${OPENCODE_BUS_PLUGIN_START}\n`)).toBe(true);

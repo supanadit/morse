@@ -18,6 +18,23 @@ describe('BOT_BUS_INSTRUCTION', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/describe|descriptions/i);
   });
 
+  it('reads the room from the prompt, and never hunts for a missing tool', () => {
+    expect(BOT_BUS_INSTRUCTION).toMatch(/Every prompt also names the room you are in/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/may be missing from your session/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/never look for another way to reach Morse/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/whatever you write in a group, the person reads/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/never ask a teammate to pass it on/);
+  });
+
+  it('asks a bot in the room by mention and ends the turn there', () => {
+    expect(BOT_BUS_INSTRUCTION).toMatch(/`@handle` and the request as your reply/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/end your turn there/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/do not say that you asked them/);
+    // The tool is for a bot elsewhere: in this room it would write a relay line
+    // on top of the reply, two messages from the same bot.
+    expect(BOT_BUS_INSTRUCTION).toMatch(/not in this room is asked in a private thread with `bot_send`/);
+  });
+
   it('sends an absent bot to a thread, never to an invite a personal chat cannot make', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/asked in a private thread/i);
     expect(BOT_BUS_INSTRUCTION).toMatch(/never ask anyone to add a bot to a personal chat/i);
@@ -29,7 +46,11 @@ describe('BOT_BUS_INSTRUCTION', () => {
   });
 
   it('names the speaker when relaying between humans, and reads short replies as answers', () => {
-    expect(BOT_BUS_INSTRUCTION).toMatch(/Dari <name>/);
+    // The speaker line is a shape, not a language: the bot writes it in the
+    // reader's own words.
+    expect(BOT_BUS_INSTRUCTION).toMatch(/name the speaker first \("<Name>: \.\.\."\)/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/in the language that person reads/);
+    expect(BOT_BUS_INSTRUCTION).not.toMatch(/Dari/);
     expect(BOT_BUS_INSTRUCTION).toMatch(/last question you carried/i);
   });
 

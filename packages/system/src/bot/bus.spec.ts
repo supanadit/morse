@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BUS_LIMITS, addressedBots, busRefusal } from './bus.js';
+import { BUS_LIMITS, addressedBots, busRefusal, replyAddressedBots } from './bus.js';
 
 /**
- * The bus's two decisions, tested without a store or a lane: who a person's
- * message reaches, and whether a delivery must be refused. Everything here is a
- * value in and a value out, so a routing bug shows up without an engine running.
+ * The bus's decisions, tested without a store or a lane: who a person's
+ * message reaches, who a bot's reply asks, and whether a delivery must be
+ * refused. Everything here is a value in and a value out, so a routing bug shows
+ * up without an engine running.
  */
 
 describe('addressedBots', () => {
@@ -71,6 +72,44 @@ describe('addressedBots', () => {
       { username: 'sigil', reason: 'all' },
       { username: 'loom', reason: 'all' },
     ]);
+  });
+});
+
+describe('replyAddressedBots', () => {
+  const members = ['sigil', 'loom', 'sage'];
+
+  it('asks the members a reply names, in mention order', () => {
+    expect(
+      replyAddressedBots({
+        text: '@sage and @loom: report in',
+        members,
+        self: 'sigil',
+      }),
+    ).toEqual([
+      { username: 'sage', reason: 'mention' },
+      { username: 'loom', reason: 'mention' },
+    ]);
+  });
+
+  it('never asks the bot that wrote the reply, or the bot whose ask it answers', () => {
+    // Loom answering Sigil's ask: naming Sigil back is the answer, not a new ask.
+    expect(
+      replyAddressedBots({ text: '@sigil done, @sigil', members, self: 'loom', asker: 'sigil' }),
+    ).toEqual([]);
+    expect(
+      replyAddressedBots({ text: '@loom @sage fyi', members, self: 'loom', asker: 'sigil' }),
+    ).toEqual([{ username: 'sage', reason: 'mention' }]);
+  });
+
+  it('asks nobody on a broadcast or an unknown handle, and nothing on a plain reply', () => {
+    // `@all` is a person's word: a bot must name whom it is talking to.
+    expect(
+      replyAddressedBots({ text: '@all standup', members, self: 'sigil' }),
+    ).toEqual([]);
+    expect(
+      replyAddressedBots({ text: '@nobody @Forge hi', members, self: 'sigil' }),
+    ).toEqual([]);
+    expect(replyAddressedBots({ text: 'all good', members, self: 'sigil' })).toEqual([]);
   });
 });
 

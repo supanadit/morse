@@ -274,7 +274,10 @@ the workspace readable. There is no OS-level sandbox and no per-path allow-list 
 may run a shell is your own login, and path rules alone would not confine it.
 
 The ruleset is generated from the checklist every time the wizard saves: a blanket deny, then one allow
-per chosen tool, so a resource-scoped rule hand-added to `opencode.json` is flattened by that save.
+per chosen tool, so a resource-scoped rule hand-added to `opencode.json` is flattened by that save. Morse's
+own bus tools (`bot_list`, `bot_send`, `human_list`, `human_send`) are allowed in every generated ruleset
+regardless of the checklist: under the blanket deny alone they were hidden from the model, which then went
+looking for another way to reach a teammate.
 
 What Morse keeps out of your own tree is the engine's config and data roots: OpenCode's config
 (`<bot>/config`), and its auth, database, sessions and logs (`<bot>/sessions`). Morse points both roots
@@ -299,9 +302,9 @@ wizard probes its catalog), and override a host variable of the same name. Only 
 they are still plaintext on disk in its private directory and come back to the browser when you edit the
 bot, so treat them like the API keys you paste into a provider.
 
-Bots created before this update are repaired on the next host start: they gain the shell plugin and,
-where their generated ruleset still uses the old tool names, the correct permission actions — so their
-shell and external-path file access start working without being recreated.
+Bots created before this update are repaired on the next host start: they gain the shell plugin, the bus
+tools in their ruleset, and, where their generated ruleset still uses the old tool names, the correct
+permission actions — so their shell and external-path file access start working without being recreated.
 
 ## Interface preferences
 

@@ -455,6 +455,16 @@ const TOOL_ACTION_RENAMES: Record<string, string> = {
 const DROPPED_TOOL_ACTIONS = new Set(['list']);
 
 /**
+ * The tools Morse's bus plugin contributes to every agent. They are not the
+ * reader's to choose — the plugin is always installed — so every ruleset Morse
+ * writes allows them: under the blanket deny alone they would be hidden from
+ * the model, which then goes looking for another way to reach a teammate.
+ */
+const BUS_TOOL_ACTIONS = ['bot_list', 'bot_send', 'human_list', 'human_send'] as const;
+const isBusToolAction = (action: string): boolean =>
+  (BUS_TOOL_ACTIONS as readonly string[]).includes(action);
+
+/**
  * Actions that reach beyond the bot's own tree. OpenCode checks
  * `external_directory` separately from the tool it is called by, so a bot whose
  * reader chose a file tool has to be allowed that action too — otherwise `read`
@@ -472,20 +482,28 @@ function actionFor(tool: string): string | undefined {
 
 /**
  * The agent's `permissions` ruleset for an allowed-tool list: a blanket deny,
- * then one allow per chosen tool's action (`read`, `edit`, `shell`, …), and
- * `external_directory` when a file tool was chosen. OpenCode evaluates the rules
- * in order and the last match wins, so the deny comes first and every allow
- * after it; one allow per action keeps a renamed pair (`write`, `patch`) from
- * writing the same rule twice.
+ * then one allow per chosen tool's action (`read`, `edit`, `shell`, …), the bus
+ * plugin's tools, and `external_directory` when a file tool was chosen. OpenCode
+ * evaluates the rules in order and the last match wins, so the deny comes first
+ * and every allow after it; one allow per action keeps a renamed pair (`write`,
+ * `patch`) from writing the same rule twice.
  */
 function permissionRules(tools: readonly string[]): Record<string, unknown>[] {
   const actions = new Set(tools.flatMap((tool) => actionFor(tool) ?? []));
+  const allow = (action: string): Record<string, unknown> => ({
+    action,
+    resource: '*',
+    effect: 'allow',
+  });
   return [
     { action: '*', resource: '*', effect: 'deny' },
-    ...[...actions].map((action) => ({ action, resource: '*', effect: 'allow' })),
+    ...[...actions].map(allow),
     ...([...actions].some((action) => FILE_TOOL_ACTIONS.has(action))
-      ? [{ action: 'external_directory', resource: '*', effect: 'allow' }]
+      ? [allow('external_directory')]
       : []),
+    // Written in the order `migrateRules` adds them, so a repaired ruleset and
+    // a fresh one for the same tools are byte-identical.
+    ...BUS_TOOL_ACTIONS.map(allow),
   ];
 }
 
@@ -521,8 +539,9 @@ function isGeneratedRuleset(rules: readonly unknown[]): boolean {
  * actions before OpenCode 2 renamed them, so a bot from that release allows
  * `bash` while its engine checks `shell` — every shell call is denied. The
  * translation is the same map the writer uses, plus `external_directory` for a
- * file tool, which that release never emitted. Nothing else is touched, and a
- * ruleset that already reads correctly comes back byte-identical.
+ * file tool, which that release never emitted, and the bus plugin's tools, which
+ * no release allowed before this one. Nothing else is touched, and a ruleset
+ * that already reads correctly comes back byte-identical.
  */
 function migrateRules(rules: readonly unknown[]): unknown[] {
   const translated: unknown[] = [];
@@ -561,6 +580,13 @@ function migrateRules(rules: readonly unknown[]): unknown[] {
   );
   if (allowsFileTool && !allowsExternal) {
     translated.push({ action: 'external_directory', resource: '*', effect: 'allow' });
+  }
+  // A rule the reader wrote for a bus tool is left as it is: only an absent one
+  // is allowed.
+  for (const action of BUS_TOOL_ACTIONS) {
+    if (!translated.some((rule) => asRecord(rule)?.['action'] === action)) {
+      translated.push({ action, resource: '*', effect: 'allow' });
+    }
   }
   return translated;
 }
@@ -661,7 +687,8 @@ export const openCodeBotLayout: BotEngineLayout = {
     // Read the allowlist back out of the ruleset, in the wizard's own vocabulary:
     // every allow, translated from the action it was written as. A config an
     // earlier Morse wrote still says `bash`, and `external_directory` is an
-    // action rather than a tool, so it must never come back as one.
+    // action rather than a tool, so it must never come back as one. The bus
+    // plugin's tools are Morse's, not a choice the form shows.
     const rules = Array.isArray(own['permissions']) ? (own['permissions'] as unknown[]) : undefined;
     const allowed = rules?.flatMap((rule) => {
       const record = asRecord(rule) ?? {};
@@ -669,7 +696,8 @@ export const openCodeBotLayout: BotEngineLayout = {
       if (
         record['effect'] !== 'allow' ||
         typeof action !== 'string' ||
-        action === 'external_directory'
+        action === 'external_directory' ||
+        isBusToolAction(action)
       ) {
         return [];
       }
@@ -709,7 +737,8 @@ export const openCodeBotLayout: BotEngineLayout = {
    *   `agent` key move to `agents` with the `system` field OpenCode reads today;
    * - a ruleset it generated with the wizard's tool names is translated to the
    *   permission actions OpenCode 2 checks, so `bash` becomes `shell` and a file
-   *   tool also gets `external_directory`;
+   *   tool also gets `external_directory`, and the bus plugin's tools are
+   *   allowed, so a bot can reach its teammates and its humans;
    * - the bot-bus instruction is written and named on the bot agent, so a bot
    *   from before the habit existed gets it without a trip through the wizard;
    * - the user-space shell plugin is installed, which is what lets a bot's
