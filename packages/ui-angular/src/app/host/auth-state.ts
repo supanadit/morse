@@ -15,7 +15,7 @@ export interface AuthStatus {
   setupRequired: boolean;
   user?: AuthUser;
   /** Present when an SSO provider is enabled and usable: the login page's second door. */
-  oidc?: { enabled: boolean; displayName: string };
+  oidc?: { enabled: boolean; displayName: string; allowPassword: boolean };
 }
 
 @Injectable({ providedIn: 'root' })

@@ -7,6 +7,7 @@ const BASE = {
   displayName: 'Keycloak',
   scopes: 'openid profile email',
   allowSignup: true,
+  allowPassword: true,
 };
 
 describe('generic OIDC provider', () => {

@@ -208,6 +208,28 @@ describe('AuthController', () => {
     expect(await verifyUser(db, 'sso.adit', 'localpass1')).toBeDefined();
   });
 
+  it('refuses password login and setup under SSO-only', async () => {
+    const admin = await createUser(db, { username: 'adit', password: 'supersecret' });
+    const adminSession = { headers: { cookie: `morse_token=${await createToken(db, admin.id)}` } };
+    await expect(controller.oidcSave(adminSession, {
+      enabled: true,
+      displayName: 'Keycloak',
+      authUrl: 'https://id.example.com/auth',
+      tokenUrl: 'https://id.example.com/token',
+      userinfoUrl: 'https://id.example.com/userinfo',
+      clientId: 'morse',
+      allowPassword: false,
+    })).resolves.toEqual({ ok: true });
+    await expect(
+      controller.login({ username: 'adit', password: 'supersecret' }, response() as never),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      controller.setup({ username: 'x', password: 'supersecret' }, response() as never),
+    ).rejects.toMatchObject({ status: 403 });
+    const status = await controller.status({ headers: {} });
+    expect(status.oidc).toEqual({ enabled: true, displayName: 'Keycloak', allowPassword: false });
+  });
+
   it('adoptLocalRowsToUser is a no-op helper the specs keep honest', async () => {
     expect(await adoptLocalRowsToUser(db, 'nobody')).toBe(0);
   });

@@ -150,6 +150,20 @@ const MIGRATIONS: Migration[] = [
       await db('morse_users').whereNotNull('oidc_sub').update({ password_set: 0 });
     },
   },
+  {
+    version: 7,
+    name: 'sso-only switch',
+    up: async (db) => {
+      // Whether the username/password form stays beside SSO. Older saved
+      // providers predate the switch and keep today's behavior: both doors.
+      const hasFlag = await db.schema.hasColumn('morse_oidc_config', 'allow_password');
+      if (!hasFlag) {
+        await db.schema.alterTable('morse_oidc_config', (table) => {
+          table.integer('allow_password').notNullable().defaultTo(1);
+        });
+      }
+    },
+  },
 ];
 
 /**

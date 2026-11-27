@@ -130,6 +130,14 @@ export class AuthController {
     return { db, user };
   }
 
+  /** True when the provider is on, usable, and the only door: no password login. */
+  private async ssoOnly(): Promise<boolean> {
+    const provider = await this.oidcProvider();
+    return (
+      provider !== undefined && provider.enabled && isOidcUsable(provider) && !provider.allowPassword
+    );
+  }
+
   /** The effective SSO provider: env when env-managed, else the admin page's row. */
   private async oidcProvider(): Promise<
     (StoredOidcConfig & { managedByEnv: boolean }) | undefined
@@ -173,7 +181,7 @@ export class AuthController {
     multiuser: boolean;
     setupRequired: boolean;
     user?: AuthUser;
-    oidc?: { enabled: boolean; displayName: string };
+    oidc?: { enabled: boolean; displayName: string; allowPassword: boolean };
   }> {
     if (!this.config.multiuser || this.db === undefined) {
       return { multiuser: false, setupRequired: false };
@@ -185,7 +193,7 @@ export class AuthController {
     const provider = await this.oidcProvider();
     const oidc =
       provider !== undefined && provider.enabled && isOidcUsable(provider)
-        ? { enabled: true as const, displayName: provider.displayName }
+        ? { enabled: true as const, displayName: provider.displayName, allowPassword: provider.allowPassword }
         : undefined;
     return {
       multiuser: true,
@@ -197,8 +205,8 @@ export class AuthController {
 
   /**
    * Creates the first (admin) user. Only while no user exists at all — the
-   * first-run wizard's single shot. Later admins are made by an admin, through
-   * `adminCreateUser`, never here.
+   * first-run wizard's single shot. Refused under SSO-only: the first admin
+   * arrives through the provider instead (first login provisions as admin).
    */
   @Post('setup')
   async setup(
@@ -209,6 +217,9 @@ export class AuthController {
     const db = this.requireDb();
     if ((await countUsers(db)) > 0) {
       throw refuse(HttpStatus.FORBIDDEN, 'Setup is already complete. Ask an admin to create your account.');
+    }
+    if (await this.ssoOnly()) {
+      throw refuse(HttpStatus.FORBIDDEN, 'Password setup is off: sign in with single sign-on instead.');
     }
     const username = typeof body.username === 'string' ? body.username : '';
     const password = typeof body.password === 'string' ? body.password : '';
@@ -227,7 +238,7 @@ export class AuthController {
     }
   }
 
-  /** Login: verifies the password and mints a cookie token. */
+  /** Login: verifies the password and mints a cookie token (refused under SSO-only). */
   @Post('login')
   async login(
     @Body() body: { username?: unknown; password?: unknown },
@@ -235,6 +246,9 @@ export class AuthController {
   ): Promise<{ user: AuthUser }> {
     const response = rawResponse as AuthResponse;
     const db = this.requireDb();
+    if (await this.ssoOnly()) {
+      throw refuse(HttpStatus.FORBIDDEN, 'Password login is off: use single sign-on instead.');
+    }
     const username = typeof body.username === 'string' ? body.username : '';
     const password = typeof body.password === 'string' ? body.password : '';
     const user = await verifyUser(db, username, password);
@@ -481,6 +495,7 @@ export class AuthController {
       displayName: 'Single sign-on',
       scopes: 'openid profile email',
       allowSignup: true,
+      allowPassword: true,
     };
     const config = provider ?? fallback;
     return {
@@ -506,6 +521,7 @@ export class AuthController {
       clientSecret?: unknown;
       scopes?: unknown;
       allowSignup?: unknown;
+      allowPassword?: unknown;
     },
   ): Promise<{ ok: true }> {
     const { db } = await this.requireAdmin(rawRequest);
@@ -514,8 +530,14 @@ export class AuthController {
     }
     const textOf = (value: unknown): string | undefined =>
       typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+    const enabled = body.enabled === true;
+    const allowSignup = body.allowSignup !== false;
+    const allowPassword = body.allowPassword !== false;
+    // Note: SSO-only without sign-up is only closable while users exist —
+    // and saving needs an admin login, so that holds by construction. A fresh
+    // host always keeps its first entry: SSO sign-up, or the local setup.
     await saveOidcConfig(db, {
-      enabled: body.enabled === true,
+      enabled,
       displayName: textOf(body.displayName) ?? 'Single sign-on',
       discoveryUrl: textOf(body.discoveryUrl),
       authUrl: textOf(body.authUrl),
@@ -525,7 +547,8 @@ export class AuthController {
       clientId: textOf(body.clientId),
       clientSecret: typeof body.clientSecret === 'string' ? body.clientSecret : undefined,
       scopes: textOf(body.scopes) ?? 'openid profile email',
-      allowSignup: body.allowSignup !== false,
+      allowSignup,
+      allowPassword,
     });
     this.logger.info('SSO provider configuration updated by an admin.');
     return { ok: true };

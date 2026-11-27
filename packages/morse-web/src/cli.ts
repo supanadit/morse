@@ -883,6 +883,7 @@ function printHelp(): void {
    MORSE_OIDC_CLIENT_SECRET SSO client secret
    MORSE_OIDC_SCOPES        Scopes requested at login (default: openid profile email)
    MORSE_OIDC_ALLOW_SIGNUP  First SSO login creates the account (default: enabled)
+   MORSE_OIDC_ALLOW_PASSWORD Show username/password beside SSO (default: enabled; off = SSO only)
    MORSE_PI_PATH          Path to the pi executable (default: pi on PATH)
    MORSE_PI_ENTRY         Run a pi RPC entry with node instead of the binary
 

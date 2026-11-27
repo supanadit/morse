@@ -21,10 +21,15 @@
   </section>
     <section class="form" aria-label="{{ setupRequired() ? 'Create the admin account' : 'Log in' }}">
       <div class="form-inner">
-      <h2>{{ setupRequired() ? 'Create admin account' : 'Log in' }}</h2>
+      <h2>{{ setupRequired() ? 'Create admin account' : ssoOnly() ? 'Welcome back' : 'Log in' }}</h2>
       <p class="sub">
-        {{ setupRequired() ? 'This only ever happens once.' : 'Your sessions pick up where you left them.' }}
+        {{ setupRequired() ? 'This only ever happens once.' : ssoOnly() ? 'This host signs in through single sign-on only.' : 'Your sessions pick up where you left them.' }}
       </p>
+      @if (ssoOnly() && ssoName() !== null) {
+        <!-- No local door: the provider is the whole page. The first sign-in
+             provisions the admin, so setup needs no local form either. -->
+        <a class="sso-button single" href="/api/auth/oidc/login">Continue with {{ ssoName() }}</a>
+      } @else {
       <form (submit)="submit(); $event.preventDefault()">
         @if (setupRequired()) {
           <label class="field">
@@ -90,11 +95,12 @@
         <button type="submit" class="primary" [disabled]="!canSubmit()">
           {{ working() ? '…' : setupRequired() ? 'Create account' : 'Log in' }}
         </button>
-        @if (!setupRequired() && ssoName() !== null) {
+        @if (!setupRequired() && !ssoOnly() && ssoName() !== null) {
           <div class="sso-divider" aria-hidden="true"><span>or</span></div>
           <a class="sso-button" href="/api/auth/oidc/login">Continue with {{ ssoName() }}</a>
         }
       </form>
+      }
       </div>
     </section>
 </div>

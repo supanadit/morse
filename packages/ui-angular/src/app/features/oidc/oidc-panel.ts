@@ -13,6 +13,7 @@ interface OidcForm {
   clientSecret: string;
   scopes: string;
   allowSignup: boolean;
+  allowPassword: boolean;
   hasSecret: boolean;
 }
 
@@ -48,6 +49,7 @@ export class OidcPanel {
   protected readonly clientSecret = signal('');
   protected readonly scopes = signal('openid profile email');
   protected readonly allowSignup = signal(true);
+  protected readonly allowPassword = signal(true);
   protected readonly hasSecret = signal(false);
 
   constructor() {
@@ -90,6 +92,7 @@ export class OidcPanel {
       this.clientSecret.set('');
       this.scopes.set(form.scopes || 'openid profile email');
       this.allowSignup.set(form.allowSignup !== false);
+      this.allowPassword.set(form.allowPassword !== false);
       this.hasSecret.set(form.hasSecret);
     } catch {
       this.error.set('Cannot reach the Morse host.');
@@ -158,6 +161,7 @@ export class OidcPanel {
           clientSecret: this.clientSecret(),
           scopes: this.scopes().trim(),
           allowSignup: this.allowSignup(),
+          allowPassword: this.allowPassword(),
         }),
       });
       if (!response.ok) {
@@ -166,7 +170,9 @@ export class OidcPanel {
       }
       this.notice.set(
         this.enabled()
-          ? 'Single sign-on is on. The login page now offers it beside the password.'
+          ? this.allowPassword()
+            ? 'Single sign-on is on. The login page now offers it beside the password.'
+            : 'Single sign-on is on and is the only login. Password login is refused.'
           : 'Single sign-on is off. Only the local login shows.',
       );
       await this.refresh();

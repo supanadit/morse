@@ -217,6 +217,16 @@
   background: var(--morse-button-secondary-hover, rgb(128 128 128 / 35%));
 }
 
+/* SSO-only hosts: the provider is the whole form, so its button reads primary. */
+.sso-button.single {
+  margin-top: 8px;
+  color: var(--morse-accent-fg, #fff);
+  background: var(--morse-accent, #7c5cff);
+}
+.sso-button.single:hover {
+  background: var(--morse-accent-hover, var(--morse-accent, #7c5cff));
+}
+
 @media (max-width: 640px) {
   .auth-page {
     grid-template-columns: 1fr;

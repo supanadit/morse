@@ -23,6 +23,10 @@ export class AuthScreen {
 
   protected readonly setupRequired = computed(() => this.auth.status()?.setupRequired === true);
   protected readonly ssoName = computed(() => this.auth.status()?.oidc?.displayName ?? null);
+  /** SSO is the only door: the local form stays hidden (server refuses it too). */
+  protected readonly ssoOnly = computed(
+    () => this.auth.status()?.oidc !== undefined && this.auth.status()?.oidc?.allowPassword === false,
+  );
   protected readonly working = this.auth.working;
   protected readonly error = this.auth.error;
   protected readonly username = signal('');

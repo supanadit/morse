@@ -68,6 +68,10 @@
         <input type="checkbox" [ngModel]="allowSignup()" (ngModelChange)="allowSignup.set($event)" />
         <span>Allow sign-up — first SSO login creates the account (otherwise only existing members get in)</span>
       </label>
+      <label class="check">
+        <input type="checkbox" [ngModel]="allowPassword()" (ngModelChange)="allowPassword.set($event)" />
+        <span>Allow password login — show the username/password form beside SSO (off means SSO only; the server refuses password login too)</span>
+      </label>
       <div class="row">
         <button type="button" class="primary" (click)="save()" [disabled]="managedByEnv() || saving()">Save</button>
         <button type="button" class="secondary" (click)="refresh()" [disabled]="saving()">Discard</button>

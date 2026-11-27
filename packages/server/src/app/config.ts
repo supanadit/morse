@@ -142,6 +142,8 @@ export interface MorseOidcEnv {
   clientSecret?: string;
   scopes: string;
   allowSignup: boolean;
+  /** False hides the username/password form: SSO is the only door. */
+  allowPassword: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerConfig {
@@ -291,7 +293,8 @@ function isOidcEnvManaged(env: NodeJS.ProcessEnv): boolean {
     env.MORSE_OIDC_CLIENT_ID !== undefined ||
     env.MORSE_OIDC_CLIENT_SECRET !== undefined ||
     env.MORSE_OIDC_SCOPES !== undefined ||
-    env.MORSE_OIDC_ALLOW_SIGNUP !== undefined
+    env.MORSE_OIDC_ALLOW_SIGNUP !== undefined ||
+    env.MORSE_OIDC_ALLOW_PASSWORD !== undefined
   );
 }
 
@@ -309,6 +312,7 @@ function readOidcEnv(env: NodeJS.ProcessEnv): MorseOidcEnv {
     clientSecret: env.MORSE_OIDC_CLIENT_SECRET?.trim() || undefined,
     scopes: env.MORSE_OIDC_SCOPES?.trim() || 'openid profile email',
     allowSignup: env.MORSE_OIDC_ALLOW_SIGNUP === undefined ? true : isOn(env.MORSE_OIDC_ALLOW_SIGNUP),
+    allowPassword: env.MORSE_OIDC_ALLOW_PASSWORD === undefined ? true : isOn(env.MORSE_OIDC_ALLOW_PASSWORD),
   };
 }
 

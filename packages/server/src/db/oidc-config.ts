@@ -21,6 +21,7 @@ export interface StoredOidcConfig {
   clientSecret?: string;
   scopes: string;
   allowSignup: boolean;
+  allowPassword: boolean;
 }
 
 const ROW_ID = 'default';
@@ -38,6 +39,7 @@ interface OidcRow {
   client_secret: string | null;
   scopes: string;
   allow_signup: number;
+  allow_password: number;
   updated_at: string | number;
 }
 
@@ -55,6 +57,7 @@ function toConfig(row: OidcRow): StoredOidcConfig {
     clientSecret: text(row.client_secret),
     scopes: row.scopes,
     allowSignup: row.allow_signup === 1,
+    allowPassword: Number(row.allow_password ?? 1) !== 0,
   };
 }
 
@@ -87,6 +90,7 @@ export async function saveOidcConfig(db: Knex, config: StoredOidcConfig): Promis
           : config.clientSecret,
       scopes: config.scopes.trim() || 'openid profile email',
       allow_signup: config.allowSignup ? 1 : 0,
+      allow_password: config.allowPassword ? 1 : 0,
       updated_at: Date.now(),
     })
     .onConflict('id')
@@ -116,6 +120,7 @@ export function effectiveOidc(
       clientSecret: env.clientSecret,
       scopes: env.scopes,
       allowSignup: env.allowSignup,
+      allowPassword: env.allowPassword,
       managedByEnv: true,
     };
   }
