@@ -30,6 +30,11 @@ export interface TreeNode<T> {
   /** A short mark at the row's end (the git badge, a count). */
   readonly badge?: string;
   /**
+   * Whether the row is waiting to be read: a dot at its start and a bold
+   * label, the way a chat app marks an unread channel. Absent everywhere else.
+   */
+  readonly unread?: boolean;
+  /**
    * The row's icon, as one of the shipped silhouettes. Absent on a row that has no
    * file behind it (a session), which keeps the column so both trees line up.
    */

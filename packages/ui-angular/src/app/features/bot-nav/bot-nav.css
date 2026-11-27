@@ -264,6 +264,26 @@ ul {
   font-weight: 600;
 }
 
+/* A room waiting to be read: bolder than the resting weight, with a red dot
+   on its avatar's corner — the chat-app unread badge. Red, like the switcher
+   pills, so waiting rooms read the same everywhere. */
+.row.unread .name {
+  font-weight: 700;
+}
+.row.unread .tile {
+  position: relative;
+}
+.row.unread .tile::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--morse-error);
+}
+
 .description {
   color: var(--morse-fg-muted);
   font-size: 11px;

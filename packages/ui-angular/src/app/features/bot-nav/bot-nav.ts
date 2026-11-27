@@ -14,6 +14,7 @@ import type { BotMood } from '../../ui/bot-face/bot-face-moods';
 import { moodForBot } from '../../ui/bot-face/bot-mood';
 import { MorseService } from '../../host/morse.service';
 import { ModePrefs } from '../../state/mode-prefs';
+import { UnreadBots } from '../../state/unread-bots';
 import { ShellState } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 
@@ -60,6 +61,12 @@ export class BotNav {
   private readonly shell = inject(ShellState);
   private readonly prefs = inject(ModePrefs);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly unread = inject(UnreadBots);
+
+  /** A room waiting to be opened: the chat-app unread dot. */
+  protected isUnread(id: string): boolean {
+    return this.unread.has(id);
+  }
 
   protected readonly bots = computed(() => this.morse.bot.roster()?.bots ?? []);
   /**

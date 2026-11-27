@@ -11,6 +11,8 @@ import { MorseService } from '../../host/morse.service';
 import { LayoutState } from '../../state/layout-state';
 import { DisplayPrefs } from '../../state/display-prefs';
 import { McpState } from '../../state/mcp-state';
+import { UnreadBots } from '../../state/unread-bots';
+import { UnreadSessions } from '../../state/unread-sessions';
 import { ShellState, type RightPane } from '../../state/shell-state';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { ShortcutService } from '../../services/shortcut.service';
@@ -42,6 +44,8 @@ export class Toolbar {
   private readonly layout = inject(LayoutState);
   private readonly mcp = inject(McpState);
   private readonly tabs = inject(WorkspaceTabs);
+  private readonly unreadSessions = inject(UnreadSessions);
+  private readonly unreadBots = inject(UnreadBots);
   private readonly shortcuts = inject(ShortcutService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -71,6 +75,10 @@ export class Toolbar {
       ? 'Bot (beta) — chat with isolated agents'
       : 'Bot (beta) — this host cannot run bot mode yet',
   );
+  /** Finished sessions waiting to be opened — one badge per mode, not one total. */
+  protected readonly codeUnread = computed(() => this.unreadSessions.ids().size);
+  /** Background bot conversations with lines not yet opened. */
+  protected readonly botUnread = computed(() => this.unreadBots.ids().size);
 
   /**
    * The keys that open the command palette on this machine, printed in the box —

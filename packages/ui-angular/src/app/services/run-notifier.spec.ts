@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttachmentStore } from '../state/attachments';
 import { MorseService } from '../host/morse.service';
+import { ModePrefs } from '../state/mode-prefs';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { NotificationSound } from './notification-sound';
 import { RunNotifier } from './run-notifier';
@@ -13,12 +14,22 @@ function setup(capabilities: Record<string, unknown> = {}) {
   const activity = signal<Activity>(new Map());
   const caps = signal<Record<string, unknown>>(capabilities);
   const sessions = signal<{ id: string; title: string }[]>([]);
+  const routing = signal<Record<string, { active: string[] }>>({});
+  const botActive = signal<string | null>(null);
+  const roster = signal<{ conversations: { id: string; title: string }[] } | null>(null);
+  const user = signal<{ id: string } | null>(null);
   const sent: { command: string; args?: Record<string, unknown> }[] = [];
   const play = vi.fn();
   const fake = {
     sessionActivity: activity as Signal<Activity>,
     capabilities: caps as Signal<Record<string, unknown>>,
     sessions,
+    user: user as Signal<{ id: string } | null>,
+    bot: {
+      routing: routing as Signal<Record<string, { active: string[] }>>,
+      activeId: botActive as Signal<string | null>,
+      roster: roster as Signal<{ conversations: { id: string; title: string }[] } | null>,
+    },
     hostCommand: vi.fn((command: string, args?: Record<string, unknown>) => {
       sent.push({ command, args });
     }),
@@ -35,7 +46,7 @@ function setup(capabilities: Record<string, unknown> = {}) {
   // The notifier is opt-in: most tests exercise it switched on.
   prefs.setEnabled(true);
   TestBed.inject(RunNotifier);
-  return { activity, caps, sessions, sent, prefs, play };
+  return { activity, caps, sessions, routing, botActive, roster, user, sent, prefs, play };
 }
 
 /** The reader is looking at another window, not the panel. */
@@ -267,6 +278,68 @@ describe('RunNotifier', () => {
     prefs.disable();
 
     TestBed.inject(RunNotifier).test();
+
+    expect(sent).toHaveLength(0);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('pings a code finish while focused in bot mode', () => {
+    const { activity, sent, play } = setup({ notify: true });
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    TestBed.inject(ModePrefs).setMode('bot');
+
+    activity.set(new Map([['s1', { streaming: true }]]));
+    TestBed.tick();
+    activity.set(new Map([['s1', { streaming: false }]]));
+    TestBed.tick();
+
+    // The answer lands in the other mode, so `away` does not suppress it.
+    expect(sent).toHaveLength(1);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('pings a bot reply while focused in code mode', () => {
+    const { routing, roster, sent, play } = setup({ notify: true });
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    roster.set({ conversations: [{ id: 'c1', title: 'Helpdesk' }] });
+
+    routing.set({ c1: { active: ['helper'] } });
+    TestBed.tick();
+    routing.set({});
+    TestBed.tick();
+
+    expect(sent).toEqual([
+      { command: 'notify', args: { title: 'Morse', body: 'Bot reply in “Helpdesk” finished' } },
+    ]);
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays quiet for the bot room in front while focused in bot mode', () => {    const { routing, botActive, sent, play } = setup({ notify: true });
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    TestBed.inject(ModePrefs).setMode('bot');
+    botActive.set('c1');
+
+    routing.set({ c1: { active: ['helper'] } });
+    TestBed.tick();
+    routing.set({});
+    TestBed.tick();
+
+    // Being read already — the `away` default treats it as seen.
+    expect(sent).toHaveLength(0);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('does not announce the other login’s in-flight runs after a scope change', () => {
+    const { activity, sent, play, user } = setup({ notify: true });
+    away();
+
+    activity.set(new Map([['s1', { streaming: true }]]));
+    TestBed.tick();
+    // Another login on the same browser: the maps reseed, nothing pings.
+    user.set({ id: 'bob' });
+    TestBed.tick();
+    activity.set(new Map([['s1', { streaming: false }]]));
+    TestBed.tick();
 
     expect(sent).toHaveLength(0);
     expect(play).not.toHaveBeenCalled();

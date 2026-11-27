@@ -20,6 +20,7 @@ import { toolFileName, toolGerund, toolKind, toolTitle } from '@morse/ui-runtime
 import type { TreeNode } from '@morse/ui-runtime';
 import { UpdateCheck } from '../../services/update';
 import { SessionNavPrefs } from '../../state/session-nav-prefs';
+import { UnreadSessions } from '../../state/unread-sessions';
 import { WorkspaceTabs } from '../../state/workspace-tabs';
 import { Pane } from '../../ui/pane/pane';
 import { TreeList } from '../../ui/tree-list/tree-list';
@@ -79,6 +80,7 @@ export class SessionNav {
   private readonly update = inject(UpdateCheck);
   private readonly tabs = inject(WorkspaceTabs);
   private readonly prefs = inject(SessionNavPrefs);
+  private readonly unread = inject(UnreadSessions);
   private readonly destroyRef = inject(DestroyRef);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
   /** The title field the session menu turns into while renaming. */
@@ -236,6 +238,9 @@ export class SessionNav {
             ? ('session-fork' as const)
             : ('session' as const),
         badge: this.age(session.updatedAt),
+        // A finished session waiting to be read keeps its dot in the list too,
+        // not only in the "Needs you" pin — the chat-app unread channel.
+        unread: this.unread.has(session.id),
         // A session with forks unfolds like a folder, so the forks are reachable.
         kind: children.length > 0 ? 'group' : 'leaf',
         children,
@@ -376,6 +381,18 @@ export class SessionNav {
   /** What the last attempt said — a refusal reason, or "restarting". */
   protected readonly updateStatus = this.update.status;
   protected readonly sessionActivity = this.morse.sessionActivity;
+  /** Finished elsewhere and not yet opened; newest first, live runs excluded. */
+  protected readonly unreadFinished = computed<SessionSummary[]>(() => {
+    const ids = this.unread.ids();
+    if (ids.size === 0) return [];
+    return this.morse
+      .sessions()
+      .filter((session) => ids.has(session.id) && !this.isRunning(session))
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  });
+  protected hasUnread(session: SessionSummary): boolean {
+    return this.unread.has(session.id);
+  }
   protected readonly scope = computed(() => this.morse.capabilities()?.scope ?? 'global');
   protected readonly workspace = computed(() => this.morse.workspace());
 
@@ -621,6 +638,7 @@ export class SessionNav {
   }
 
   protected activate(session: SessionSummary): void {
+    this.unread.clear(session.id);
     // The tab strip (browser host) opens the session's tab; the host also
     // replays its transcript. VS Code has no strip and this is still the switch.
     this.tabs.focusSession({ id: session.id, title: session.title, cwd: session.cwd });

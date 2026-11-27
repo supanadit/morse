@@ -11,14 +11,19 @@ import {
   type NotificationPermissionState,
 } from './notification-channel';
 import { NotificationSound } from './notification-sound';
+import { UnreadSessions } from '../state/unread-sessions';
+import { ModePrefs } from '../state/mode-prefs';
 
 /**
  * Tells the reader when a run finishes while they are looking elsewhere.
  *
- * Only an *end* is news: a session's `streaming` flag going true → false. Whether
+ * Only an *end* is news: a session's `streaming` flag going true → false, or a
+ * bot round disappearing from `bot/routing`. Whether
  * the ping is raised is the reader's preference (`NotificationPrefs`), and where
  * the panel is focused it is `away` by default — the answer is on screen, so a
- * notification is noise. A host with its own notifications (`capabilities.notify`,
+ * notification is noise. A finish in the *other* mode is never on screen, so it
+ * always pings: a bot reply landing while the reader is in Code, and vice versa.
+ * A host with its own notifications (`capabilities.notify`,
  * VS Code, whose webview has no Web Notifications) raises one; the browser host
  * uses the `Notification` API, with an in-app toast as the last resort.
  *
@@ -30,9 +35,15 @@ export class RunNotifier {
   private readonly attachments = inject(AttachmentStore);
   private readonly prefs = inject(NotificationPrefs);
   private readonly sound = inject(NotificationSound);
+  private readonly unread = inject(UnreadSessions);
+  private readonly modes = inject(ModePrefs);
   private readonly destroyRef = inject(DestroyRef);
   /** The last observed streaming state per session, so only a stop is news. */
   private streaming = new Map<string, boolean>();
+  /** Conversation ids with a round in flight at the last report. */
+  private botRounds = new Set<string>();
+  /** The login the maps above were seeded for; a change reseeds without a ping. */
+  private lastScope = '';
 
   /**
    * The browser's live permission. A reader can revoke it from the site settings
@@ -49,13 +60,22 @@ export class RunNotifier {
       const activity = this.morse.sessionActivity();
       untracked(() => this.watch(activity));
     });
+    effect(() => {
+      const routing = this.botRouting();
+      untracked(() => this.watchBots(routing));
+    });
     const refresh = (): void => this.permissionSignal.set(readPermission());
     this.destroyRef.onDestroy(trackNotificationPermission(refresh));
     this.destroyRef.onDestroy(() => this.streaming.clear());
+    this.destroyRef.onDestroy(() => this.botRounds.clear());
   }
 
   /** Diffs this report against the last one and announces whatever just stopped. */
   private watch(activity: ReadonlyMap<string, { streaming: boolean }>): void {
+    if (this.rescoped()) {
+      this.streaming = new Map([...activity].map(([key, entry]) => [key, entry.streaming]));
+      return;
+    }
     const finished: string[] = [];
     for (const [key, entry] of activity) {
       if (this.streaming.get(key) === true && !entry.streaming) {
@@ -74,18 +94,76 @@ export class RunNotifier {
     if (finished.length === 0) {
       return;
     }
+    // A finish in the session already in front is seen, not news to revisit —
+    // but only while Code mode is on screen. In Bot mode the reader cannot
+    // see any session, so every finish is news.
+    const here = this.frontSessionId;
+    this.unread.mark(here === undefined ? finished : finished.filter((id) => id !== here));
     this.announce(finished);
+  }
+
+  /** The session in front, if Code mode is what the reader is looking at. */
+  private get frontSessionId(): string | undefined {
+    try {
+      if (this.modes.mode() !== 'code') return undefined;
+      return (this.morse as { state?: () => { sessionId?: string } }).state?.()?.sessionId;
+    } catch {
+      return undefined;
+    }
   }
 
   private announce(keys: readonly string[]): void {
     if (!this.prefs.enabled()) {
       return;
     }
-    // `away` (the default) keeps quiet while the answer is already on screen.
-    if (this.prefs.mode() === 'away' && isWindowFocused()) {
+    // `away` keeps quiet while the answer is already on screen — which is only
+    // true in the same mode. A code run finishing while the reader is in Bot
+    // mode lands nowhere they can see, so it always pings (and vice versa).
+    if (this.prefs.mode() === 'away' && isWindowFocused() && this.modes.mode() === 'code') {
       return;
     }
     this.deliver(this.body(keys));
+  }
+
+  /** The bot half: rounds present at the last report that have since cleared. */
+  private botRouting(): ReadonlySet<string> {
+    const routing = (
+      this.morse as { bot?: { routing?: () => Record<string, unknown> } }
+    ).bot?.routing?.();
+    return new Set(Object.keys(routing ?? {}));
+  }
+
+  private watchBots(running: ReadonlySet<string>): void {
+    if (this.rescoped()) {
+      this.botRounds = new Set(running);
+      return;
+    }
+    const finished = [...this.botRounds].filter((id) => !running.has(id));
+    this.botRounds = new Set(running);
+    if (finished.length === 0) {
+      return;
+    }
+    this.announceBots(finished);
+  }
+
+  private announceBots(ids: readonly string[]): void {
+    if (!this.prefs.enabled()) {
+      return;
+    }
+    // The room in front is being read when bot mode is on screen and focused;
+    // anything else — another room, or any bot finish while in Code — is news.
+    if (this.prefs.mode() === 'away' && isWindowFocused() && this.modes.mode() === 'bot') {
+      const active = (
+        this.morse as { bot?: { activeId?: () => string | null } }
+      ).bot?.activeId?.();
+      const news = active === undefined || active === null ? ids : ids.filter((id) => id !== active);
+      if (news.length === 0) {
+        return;
+      }
+      this.deliver(this.botBody(news));
+      return;
+    }
+    this.deliver(this.botBody(ids));
   }
 
   /**
@@ -147,12 +225,36 @@ export class RunNotifier {
     this.attachments.say('warn', 'Notifications are blocked for this site.');
   }
 
+  /**
+   * True when the login changed under the live maps (a different `user.id` than
+   * they were seeded for). The other login's in-flight runs are not this
+   * login's news, so the maps reseed silently instead of announcing.
+   */
+  private rescoped(): boolean {
+    const scope = (
+      this.morse as { user?: () => { id?: string } | null }
+    ).user?.()?.id ?? 'single';
+    if (scope === this.lastScope) return false;
+    this.lastScope = scope;
+    return true;
+  }
+
   private body(keys: readonly string[]): string {
     if (keys.length > 1) {
       return `${keys.length} sessions finished`;
     }
     const title = this.morse.sessions().find((session) => session.id === keys[0])?.title;
     return title !== undefined && title.length > 0 ? `“${title}” finished` : 'A session finished';
+  }
+
+  private botBody(ids: readonly string[]): string {
+    if (ids.length > 1) {
+      return `${ids.length} bot replies finished`;
+    }
+    const title = (
+      this.morse as { bot?: { roster?: () => { conversations?: { id: string; title: string }[] } | null } }
+    ).bot?.roster?.()?.conversations?.find((conversation) => conversation.id === ids[0])?.title;
+    return title !== undefined && title.length > 0 ? `Bot reply in “${title}” finished` : 'A bot reply finished';
   }
 
   private async webNotify(body: string): Promise<void> {

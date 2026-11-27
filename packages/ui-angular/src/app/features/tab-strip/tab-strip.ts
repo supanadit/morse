@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { fileGlyph } from '@morse/ui-runtime';
 import { MorseService } from '../../host/morse.service';
+import { UnreadSessions } from '../../state/unread-sessions';
 import { Dialog } from '../../ui/dialog/dialog';
 import { WorkspaceTabs, type WorkspaceTab } from '../../state/workspace-tabs';
 
@@ -40,6 +41,11 @@ interface TabMenu {
 export class TabStrip {
   private readonly tabs = inject(WorkspaceTabs);
   private readonly morse = inject(MorseService);
+  private readonly unread = inject(UnreadSessions);
+
+  protected hasUnread(id: string): boolean {
+    return this.unread.has(id);
+  }
 
   protected readonly items = this.tabs.tabs;
   protected readonly activeId = this.tabs.activeId;
@@ -206,6 +212,7 @@ export class TabStrip {
   }
 
   protected select(id: string): void {
+    this.unread.clear(id);
     this.tabs.select(id);
   }
 
@@ -275,6 +282,7 @@ export class TabStrip {
 
   /** Opens the tab the drawer row names, and gets the drawer out of the way. */
   protected pick(id: string): void {
+    this.unread.clear(id);
     this.tabs.select(id);
     this.closeSheet();
   }

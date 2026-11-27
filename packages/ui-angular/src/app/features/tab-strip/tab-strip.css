@@ -203,6 +203,17 @@
     transform: rotate(360deg);
   }
 }
+/* A finished session waiting to be read: a solid dot, no spin. */
+.tab .unread-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--morse-accent);
+}
+.tab.unread .label {
+  font-weight: 600;
+}
 .glyph {
   flex: none;
   font-size: 11px;

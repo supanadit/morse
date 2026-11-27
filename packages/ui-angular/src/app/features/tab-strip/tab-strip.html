@@ -52,6 +52,7 @@
         [class.parent]="tab.kind === 'session' && tab.id === activeChipOwner()"
         [class.subagent]="isSubagent(tab)"
         [class.running]="tab.kind === 'session' && isRunning(tab.id)"
+        [class.unread]="tab.kind === 'session' && hasUnread(tab.id)"
         [attr.aria-selected]="tab.id === activeId()"
         [title]="title(tab)"
         (click)="select(tab.id)"
@@ -62,6 +63,8 @@
       >
         @if (tab.kind === 'session' && isRunning(tab.id)) {
           <span class="live" aria-hidden="true"></span>
+        } @else if (tab.kind === 'session' && hasUnread(tab.id)) {
+          <span class="unread-dot" aria-hidden="true"></span>
         } @else {
           <span class="glyph" aria-hidden="true">{{ glyph(tab) }}</span>
         }

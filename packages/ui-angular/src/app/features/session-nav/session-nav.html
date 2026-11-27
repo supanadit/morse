@@ -117,6 +117,35 @@
         </section>
       }
 
+      @if (unreadFinished().length > 0) {
+        <section class="group">
+          <div class="group-head">
+            <span class="group-label">Needs you</span>
+            <span class="count">{{ unreadFinished().length }}</span>
+          </div>
+          <ul>
+            @for (session of unreadFinished(); track session.id) {
+              <li>
+                <button
+                  type="button"
+                  class="session unread"
+                  [class.active]="session.id === activeSessionId()"
+                  [title]="session.id"
+                  (click)="activate(session)"
+                  (contextmenu)="openMenu($event, session)"
+                >
+                  <span class="mark unread-dot" aria-hidden="true"></span>
+                  <span class="body">
+                    <span class="title">{{ session.title }}</span>
+                    <span class="subtitle">Finished</span>
+                  </span>
+                </button>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+
       <!--
         Projects and their sessions, drawn in the same tree the Explorer uses: a
         project folds with `▾`/`▸`, each session is a `└─` under it, and the per-project

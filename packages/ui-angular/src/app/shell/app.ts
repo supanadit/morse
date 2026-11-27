@@ -47,6 +47,7 @@ import { Toolbar } from './toolbar/toolbar';
 import { DropZone } from '../ui/drop-zone';
 import { MorseService } from '../host/morse.service';
 import { RunNotifier } from '../services/run-notifier';
+import { FaviconBadge } from '../services/favicon-badge';
 import { RunClock } from '../services/run-clock';
 import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
@@ -225,6 +226,8 @@ export class App {
   protected readonly tabs = inject(WorkspaceTabs);
   private readonly queue = inject(QueuedPrompts);
   private readonly notifier = inject(RunNotifier);
+  /** The tab icon and title follow the unread dots; constructed once with the shell. */
+  private readonly favicon = inject(FaviconBadge);
   private readonly notifications = inject(NotificationPrefs);
   private readonly shortcuts = inject(ShortcutService);
   private readonly dropZone = inject(DropZone);

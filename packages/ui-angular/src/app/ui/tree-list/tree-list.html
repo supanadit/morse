@@ -28,6 +28,7 @@
           role="treeitem"
           [class.group]="row.node.kind === 'group'"
           [class.active]="selected() === row.node.id"
+          [class.unread]="row.node.unread === true"
           [attr.aria-level]="row.depth + 1"
           [attr.aria-expanded]="row.node.kind === 'group' ? isOpen(row.node) : null"
           [attr.aria-current]="selected() === row.node.id ? 'true' : null"

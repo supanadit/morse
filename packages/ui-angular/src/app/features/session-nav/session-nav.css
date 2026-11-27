@@ -296,6 +296,13 @@ ul {
     transform: rotate(360deg);
   }
 }
+.session .mark.unread-dot {
+  background: var(--morse-accent);
+}
+/* A finished session waiting to be read reads stronger than a plain row. */
+.session.unread .title {
+  font-weight: 600;
+}
 
 /*
  * The session context menu. Named context-menu, not menu: the shell
