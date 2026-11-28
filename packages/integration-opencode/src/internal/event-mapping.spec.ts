@@ -185,6 +185,18 @@ function mapAll(events: readonly OpenCodeEvent[]): {
 }
 
 describe('OpenCodeEventMapper forms', () => {
+  it('ignores form shells with no usable fields instead of crashing the host', () => {
+    const mapper = new OpenCodeEventMapper();
+    for (const form of [
+      { id: 'f1', title: 'Choose', metadata: {} },
+      { id: 'f2', fields: [] },
+      { id: 'f3', fields: [null, { title: 'no key' }] },
+      { fields: [{ key: 'a', type: 'string' }] },
+    ]) {
+      expect(mapper.map(event('form.created', { form })).events).toEqual([]);
+    }
+  });
+
   it('ignores a form created without fields instead of crashing the host', () => {
     const mapper = new OpenCodeEventMapper();
     const mapped = mapper.map(

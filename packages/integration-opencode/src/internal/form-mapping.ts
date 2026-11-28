@@ -61,15 +61,31 @@ export interface ApiPermissionRequest {
   metadata?: Record<string, unknown>;
 }
 
-/** One OpenCode form as the frontend's multi-field request. */
+/** One OpenCode form as the frontend's multi-field request. Never throws: a
+ * form shell with no `fields` array (or no usable fields) becomes an empty
+ * form rather than killing the host — callers skip empty shells. */
 export function toFormRequest(form: ApiForm): AgentFormRequest {
-  const message = form.metadata?.message;
+  const message = (form as ApiForm | undefined)?.metadata?.message;
+  const raw = Array.isArray((form as ApiForm | undefined)?.fields)
+    ? ((form as ApiForm).fields as unknown[])
+    : [];
   return {
-    requestId: form.id,
+    requestId: typeof (form as ApiForm | undefined)?.id === 'string' ? (form as ApiForm).id : '',
     kind: 'form',
-    title: form.title !== undefined && form.title.length > 0 ? form.title : 'OpenCode needs input',
+    title:
+      typeof (form as ApiForm | undefined)?.title === 'string' &&
+      (form as ApiForm).title!.length > 0
+        ? (form as ApiForm).title!
+        : 'OpenCode needs input',
     ...(typeof message === 'string' && message.length > 0 ? { message } : {}),
-    fields: form.fields.map(toFormField),
+    fields: raw
+      .filter(
+        (field): field is ApiFormField =>
+          typeof field === 'object' &&
+          field !== null &&
+          typeof (field as { key?: unknown }).key === 'string',
+      )
+      .map(toFormField),
   };
 }
 

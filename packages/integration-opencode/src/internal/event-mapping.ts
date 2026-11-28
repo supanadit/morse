@@ -269,10 +269,20 @@ export class OpenCodeEventMapper {
 
       case 'form.created': {
         const form = asRecord(data['form']);
-        // An OpenCode build can send a form shell with no `fields` array. There
-        // is nothing a reader could answer, and mapping it crashed the host;
-        // treat it as no interaction rather than a dialog nobody can fill.
-        if (form === undefined || !Array.isArray(form['fields'])) {
+        // An OpenCode build can send a form shell with no `fields` array or no
+        // id. There is nothing a reader could answer, and mapping it crashed
+        // the host; treat it as no interaction rather than a dialog nobody
+        // can fill. `toFormRequest` itself never throws either, so a weird
+        // field shape can still only become an empty form, never a restart.
+        if (
+          form === undefined ||
+          typeof form['id'] !== 'string' ||
+          !Array.isArray(form['fields'])
+        ) {
+          return { events: [] };
+        }
+        const request = toFormRequest(form as unknown as ApiForm);
+        if (request.fields.length === 0) {
           return { events: [] };
         }
         return {

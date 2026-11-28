@@ -1020,10 +1020,27 @@ export class OpenCodeAgent extends Session {
         if (this.disposed) {
           return;
         }
-        for (const form of forms) {
-          this.announce(toFormRequest(form), 'form');
+        // A resumed session can list a form shell with no `fields` array —
+        // the same shape that killed the host on `form.created`. There is
+        // nothing to answer, so skip it instead of announcing an empty
+        // dialog (`toFormRequest` never throws, this skips the noise too).
+        for (const form of Array.isArray(forms) ? forms : []) {
+          if (
+            typeof (form as ApiForm | undefined)?.id !== 'string' ||
+            !Array.isArray((form as ApiForm | undefined)?.fields)
+          ) {
+            continue;
+          }
+          const request = toFormRequest(form);
+          if (request.fields.length === 0) {
+            continue;
+          }
+          this.announce(request, 'form');
         }
-        for (const permission of permissions) {
+        for (const permission of Array.isArray(permissions) ? permissions : []) {
+          if (typeof (permission as ApiPermissionRequest | undefined)?.id !== 'string') {
+            continue;
+          }
           this.announce(toPermissionRequest(permission), 'permission');
         }
       })
