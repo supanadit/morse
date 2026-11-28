@@ -655,6 +655,12 @@ const SPEAKER = hostPerson().name;
 /** The line every prompt opens with: which login human the bot is answering. */
 const HUMAN_LINE = `The human you are answering is ${SPEAKER}.`;
 
+/** The person as a transcript line names them: tagged, so a bot line is never mistaken for them. */
+const PERSON = `${SPEAKER} [human]`;
+
+/** A bot as a transcript line names them: display name, handle, and that it is a bot. */
+const botSpeaker = (name: string) => `${name} (@${name.toLowerCase()}) [bot]`;
+
 /**
  * The line every personal chat prompt opens with. A DM holds nobody else, so the
  * bot is told that up front — otherwise it asks the person to invite a bot to a
@@ -665,7 +671,7 @@ const personal = (bot: string) =>
   'Personal chat: only the person and you are here, and nobody can be added to it. ' +
   'Another bot is asked with `bot_send` in a private thread, and its answer comes ' +
   'back to you to pass on in your own words.\n\n' +
-  `[${bot}] ${SPEAKER}: `;
+  `[${bot}] ${PERSON}: `;
 
 function botInput(overrides: Partial<BotCreateInput> = {}): BotCreateInput {
   return {
@@ -1556,7 +1562,7 @@ describe('BotService edits', () => {
     // An edit drops the session id, so the next turn starts a fresh engine session
     // — and is handed the conversation so far rather than continuing blind.
     expect(gateways.at(-1)?.prompts.at(-1)).toBe(
-      `${personal('Forge')}hi\n\n[Forge] ${SPEAKER}: again`,
+      `${personal('Forge')}hi\n\n[Forge] ${PERSON}: again`,
     );
   });
 
@@ -1928,8 +1934,8 @@ describe('BotService rounds', () => {
 
     // Two lanes, two turns: neither reads the other's answer, because each slice
     // is pinned to the person's line the delivery asks about.
-    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @all standup`]);
-    expect(gatewayFor(adapter, 'sable').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @all standup`]);
+    expect(gatewayFor(adapter, 'forge').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: @all standup`]);
+    expect(gatewayFor(adapter, 'sable').prompts).toEqual([`${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: @all standup`]);
     expect(
       service
         .transcript(group.id)
@@ -2039,8 +2045,8 @@ describe('BotService rounds', () => {
     await settle(service, group.id);
     const sable = gatewayFor(adapter, 'sable');
     expect(sable.prompts[0]).toBe(
-      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @forge first\n\n[Launch] Forge: forge reply 1\n\n` +
-        `[Launch] ${SPEAKER}: @sable second`,
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: @forge first\n\n[Launch] ${botSpeaker("Forge")}: forge reply 1\n\n` +
+        `[Launch] ${PERSON}: @sable second`,
     );
 
     // Third: Forge again. It already knows what it said itself, so its own words
@@ -2050,7 +2056,7 @@ describe('BotService rounds', () => {
     const forge = gatewayFor(adapter, 'forge');
     // The room is named again — it is told every turn — but nothing is repeated.
     expect(forge.prompts[1]).toBe(
-      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @sable second\n\n[Launch] Sable: sable reply 1\n\n[Launch] ${SPEAKER}: @forge third`,
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: @sable second\n\n[Launch] ${botSpeaker("Sable")}: sable reply 1\n\n[Launch] ${PERSON}: @forge third`,
     );
     expect(forge.prompts[1]).not.toContain('forge reply 1');
     // Nothing is sent twice: the mark advanced with every accepted prompt.
@@ -2123,7 +2129,7 @@ describe('BotService rounds', () => {
     // resumed session is told the room again — every turn is — but is not
     // replayed what it already read.
     expect(newest?.gateways[0]?.prompts).toEqual([
-      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: @sable and now`,
+      `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: @sable and now`,
     ]);
   });
 
@@ -2169,7 +2175,7 @@ describe('BotService rounds', () => {
 
     expect(gatewayFor(adapter, 'forge').prompts).toEqual([
       'You are the lead of the group "Launch". Answer, or ask a member by @handle in your reply.\n\n' +
-        `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${SPEAKER}: what next`,
+        `${HUMAN_LINE}\n\n${room}\n\n[Launch] ${PERSON}: what next`,
     ]);
     expect(factoryFor(adapter, 'sable').gateways).toHaveLength(0);
   });
@@ -2237,7 +2243,7 @@ describe('BotService rounds', () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain('[From Forge (@forge) — another bot in this room, not the person.');
     expect(prompts[0]).toContain(room);
-    expect(prompts[0]).toContain('[Launch] Forge: @sable take over');
+    expect(prompts[0]).toContain(`[Launch] ${botSpeaker('Forge')}: @sable take over`);
     expect(prompts[0]).not.toContain('[Launch] Sable:');
     expect(service.routing(group.id)).toBeNull();
   });
@@ -3238,6 +3244,42 @@ describe('BotService bus', () => {
     );
   });
 
+  it('names the room’s human to a bot a teammate named, and tells speakers apart', async () => {
+    // A shared host: Ada's room and Bob's room are different rooms, and a bot
+    // woken by a teammate's @handle is still answering the one whose room it is.
+    const ada = { id: 'u-ada', username: 'ada', name: 'Ada' };
+    const bob = { id: 'u-bob', username: 'bob', name: 'Bob' };
+    const { adapter, service } = harness({
+      script: ({ bot, prompt }) =>
+        bot === 'forge' && prompt.includes('@forge')
+          ? { text: '@sable over to you' }
+          : { text: 'noted' },
+    });
+    await twoBots(service);
+    const group = service.createGroup({ name: 'Launch', members: ['forge', 'sable'] });
+
+    await service.send(group.id, '@forge hello', undefined, ada);
+    await settle(service, group.id);
+
+    // Sable's turn was started by Forge, not by a person: the prompt still names
+    // the human it answers, the room and who is in it, and tags every speaker.
+    const prompt = gatewayFor(adapter, 'sable').prompts[0];
+    expect(prompt).toContain('The human you are answering is Ada (@ada).');
+    expect(prompt).toContain('Group "Launch" — members: Forge (@forge), Sable (@sable).');
+    expect(prompt).toContain('[From Forge (@forge) — another bot in this room, not the person.');
+    expect(prompt).toContain(`[Launch] Ada (@ada) [human]: @forge hello`);
+    expect(prompt).toContain(`[Launch] ${botSpeaker('Forge')}: @sable over to you`);
+    expect(prompt).not.toContain('Bob');
+
+    // Bob's own room names Bob and nobody else.
+    await service.send('dm-forge', 'mine', undefined, bob);
+    await settle(service, 'dm-forge');
+    const mine = gatewayFor(adapter, 'forge', 1).prompts[0];
+    expect(mine).toContain('The human you are answering is Bob (@bob).');
+    expect(mine).toContain('[Forge] Bob (@bob) [human]: mine');
+    expect(mine).not.toContain('Ada');
+  });
+
   it('lists login humans for a bot, or the host person alone', async () => {
     const { service } = harness();
     await busBots(service);
@@ -3504,8 +3546,10 @@ describe('BotService bus', () => {
     // The peer's own prompt says the person is not here: nobody is invited to a
     // personal chat, and a thread is not a place to report to.
     const prompt = gatewayFor(adapter, 'loom').prompts.at(-1) ?? '';
-    expect(prompt).toContain('Private thread with @sigil');
+    expect(prompt).toContain('Private thread with Sigil (@sigil)');
     expect(prompt).toContain('the person does not read it');
+    // It also says how to go on and how to stop, since @handle asks inside a thread.
+    expect(prompt).toContain('a reply without a name is the thread\'s final answer');
     expect(prompt).not.toContain('Personal chat:');
 
     service.stop('dm-sigil');

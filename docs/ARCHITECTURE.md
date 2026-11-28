@@ -407,7 +407,10 @@ what makes a bot's memory its own — and it is also why Morse cannot rely on it
 Engines do not offer "append these messages to this session without running you": pi owns its session files and
 has no such call, and OpenCode's message API differs by version. So Morse does the honest equivalent, at the
 moment a bot is asked: it hands that bot **everything said since its last turn**, read from the conversation
-transcript, framed as a chat log (`[Launch] Sable: …`). `BotSessionRef.toldUpTo` records the last entry a bot was
+transcript, framed as a chat log with every speaker tagged (`[Launch] Sable (@sable) [bot]: …`, a person as
+`Ada (@ada) [human]`), under one line naming the kind of room, its members, and the human the bot is answering —
+on every person-facing turn, whoever started it, so on a shared host a bot woken by a teammate's `@handle` still
+knows whose room it is. `BotSessionRef.toldUpTo` records the last entry a bot was
 given, which is what makes this exact rather than approximate:
 
 - a bot that was not addressed is caught up when it is finally called — including replies that were relayed to

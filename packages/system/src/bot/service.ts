@@ -3329,13 +3329,17 @@ export class BotService {
     const lines: string[] = [];
     // Who is speaking: a bot on a shared host answers many humans across many
     // rooms, and the trigger carries the login identity. Said once per prompt,
-    // outside the trim, so a long room never pushes the addressee out of view.
-    if (delivery?.from.type === 'person') {
-      const who =
-        delivery.from.username !== undefined && delivery.from.username !== ''
-          ? `${delivery.from.name} (@${delivery.from.username})`
-          : delivery.from.name;
-      lines.push(`The human you are answering is ${who}.`);
+    // outside the trim, so a long room never pushes the addressee out of view —
+    // and on every person-facing turn, not only a person's own: a teammate's
+    // @handle and a relayed answer are answered to the room's human just the same.
+    const human =
+      conversation.kind === 'thread'
+        ? undefined
+        : delivery?.from.type === 'person'
+          ? delivery.from
+          : this.humanIn(conversation);
+    if (human !== undefined) {
+      lines.push(`The human you are answering is ${this.speakerName(human.name, human.username)}.`);
     }
     // Every prompt says what kind of room this is, because what a bot may ask for
     // differs by it: a personal chat holds nobody else, and a thread is not read
@@ -3350,11 +3354,13 @@ export class BotService {
     }
     if (conversation.kind === 'thread') {
       const peer = conversation.members.find((member) => member !== bot.username);
+      const peerName = peer === undefined ? undefined : this.bot(peer)?.name;
       lines.push(
-        `Private thread with ${peer === undefined ? 'one other bot' : `@${peer}`}: the person ` +
-          'does not read it, and nobody else is here. Answer your peer. Whatever the person ' +
-          'needs is relayed for you by the bot that asked, in the room it came from — so say ' +
-          'what it must know, not a status report.',
+        `Private thread with ${peer === undefined ? 'one other bot' : `${peerName ?? peer} (@${peer})`}: the person ` +
+          'does not read it, and nobody else is here. Answer your peer by name — @handle ' +
+          'asks them, and a reply without a name is the thread\'s final answer, which goes ' +
+          'back to the room that asked — so end with what that room must know, not a ' +
+          'status report.',
       );
     }
     // Every group prompt names the room and its members by handle: that is the
@@ -3402,13 +3408,14 @@ export class BotService {
     if (entry.author.role === 'user') {
       const attached = attachmentSummary(entry.images?.length ?? 0, entry.files?.length ?? 0);
       const text = attached === '' ? entry.text : `${entry.text}\n${attached}`;
-      // The prompt names who is speaking: a bot in a shared host talks to many
-      // humans, and "You" alone would leave it guessing which one.
-      const who =
-        entry.author.username !== undefined && entry.author.username !== ''
-          ? `${entry.author.name ?? entry.author.username} (@${entry.author.username})`
-          : (entry.author.name ?? 'You');
-      return relayLine(title, who, text);
+      // The prompt names who is speaking, and that they are the person: a bot in
+      // a shared host talks to many humans, and "You" alone would leave it
+      // guessing which one — or whether the speaker was a bot at all.
+      const who = this.speakerName(
+        entry.author.name ?? entry.author.username ?? 'You',
+        entry.author.username,
+      );
+      return relayLine(title, `${who} [human]`, text);
     }
     if (entry.author.role === 'bot') {
       // Its own reply is its own turn in its session; Morse's notes and the
@@ -3417,11 +3424,43 @@ export class BotService {
       // engine session never saw it, so it reads as what it is — words the
       // bot already sent here.
       if (entry.author.username !== bot.username) {
-        return relayLine(title, entry.author.name, entry.text);
+        return relayLine(
+          title,
+          `${this.speakerName(entry.author.name, entry.author.username)} [bot]`,
+          entry.text,
+        );
       }
       return entry.via === 'bus' ? relayLine(title, 'You (to this room)', entry.text) : undefined;
     }
     return undefined;
+  }
+
+  /**
+   * The human a room belongs to, as its newest line names them. Every
+   * person-facing room is one person's — a shared host scopes each to its login —
+   * so the last line a person wrote there is the one the bot is answering, even
+   * when a teammate's @handle or a relayed answer is what started the turn.
+   */
+  private humanIn(
+    conversation: ConversationRecord,
+  ): { name: string; username?: string } | undefined {
+    const entries = this.transcripts.all(conversation.id);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const author = entries[index]?.author;
+      if (author?.role !== 'user') {
+        continue;
+      }
+      const name = author.name ?? author.username;
+      return name === undefined || name === ''
+        ? undefined
+        : { name, ...(author.username === undefined ? {} : { username: author.username }) };
+    }
+    return undefined;
+  }
+
+  /** A speaker as the prompt names them: by display name, with the login handle when the host has one. */
+  private speakerName(name: string, username: string | undefined): string {
+    return username === undefined || username === '' ? name : `${name} (@${username})`;
   }
 
   /** Records how far a bot has been told, so the next turn starts after it. */
