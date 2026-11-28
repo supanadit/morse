@@ -68,9 +68,11 @@ const ENV_KEYS = [
   'PATH',
   'FAKE_OC_URL',
   'FAKE_OC_PASSWORD',
+  'OPENCODE_SERVER_PASSWORD',
   'FAKE_OC_SPAWNS',
   'FAKE_OC_STOP_FILE',
   'FAKE_OC_ENV_FILE',
+  'FAKE_OC_PASSWORD_FILE',
 ] as const;
 const savedEnv = new Map<string, string | undefined>();
 
@@ -111,6 +113,7 @@ function fakeBinary(dir: string): string {
     `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.appendFileSync(process.env.FAKE_OC_SPAWNS, 'spawn\\n');
+fs.writeFileSync(process.env.FAKE_OC_PASSWORD_FILE, process.env.OPENCODE_SERVER_PASSWORD);
 fs.writeFileSync(
   process.env.FAKE_OC_ENV_FILE,
   JSON.stringify({
@@ -124,7 +127,8 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 console.log('server listening on ' + process.env.FAKE_OC_URL);
-console.log('server password ' + process.env.FAKE_OC_PASSWORD);
+// Every real build checks the password it was started with, so this one does too.
+console.log('server password ' + process.env.OPENCODE_SERVER_PASSWORD);
 setInterval(() => {}, 1000);
 `,
     { mode: 0o755 },
@@ -170,14 +174,15 @@ async function startFakeServer(): Promise<{
       },
     ],
   ]);
-  const expected = `Basic ${Buffer.from(`opencode:${PASSWORD}`).toString('base64')}`;
+  const expectedFor = (): string =>
+    `Basic ${Buffer.from(`opencode:${readFileSync(process.env['FAKE_OC_PASSWORD_FILE'] ?? '', 'utf8')}`).toString('base64')}`;
   const send = (response: ServerResponse, body: unknown, status = 200): void => {
     response.writeHead(status, { 'content-type': 'application/json' });
     response.end(JSON.stringify(body));
   };
   const server = createServer((request, response) => {
     requests.push(`${request.method ?? 'GET'} ${request.url ?? '/'}`);
-    if (request.headers.authorization !== expected) {
+    if (request.headers.authorization !== expectedFor()) {
       send(response, { error: 'unauthorized' }, 401);
       return;
     }
@@ -623,6 +628,7 @@ process.exit(3);
     process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
     process.env['FAKE_OC_URL'] = fake.url;
     process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_PASSWORD_FILE'] = join(botRoot, 'password');
     process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
     process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
     const engine = await createBotOpenCodeEngine({ botRoot, logger: silentLogger });
@@ -677,6 +683,7 @@ describe('opencodeBotAdapterFactory', () => {
     process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
     process.env['FAKE_OC_URL'] = fake.url;
     process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_PASSWORD_FILE'] = join(botRoot, 'password');
     process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
     process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
     process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
@@ -736,6 +743,7 @@ describe('opencodeBotAdapterFactory', () => {
     process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
     process.env['FAKE_OC_URL'] = fake.url;
     process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_PASSWORD_FILE'] = join(botRoot, 'password');
     process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
     process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
     process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');
@@ -766,6 +774,7 @@ describe('opencodeBotAdapterFactory', () => {
     process.env['PATH'] = `${fakeBinary(botRoot)}${delimiter}${process.env['PATH'] ?? ''}`;
     process.env['FAKE_OC_URL'] = fake.url;
     process.env['FAKE_OC_PASSWORD'] = PASSWORD;
+    process.env['FAKE_OC_PASSWORD_FILE'] = join(botRoot, 'password');
     process.env['FAKE_OC_SPAWNS'] = join(botRoot, 'spawns.log');
     process.env['FAKE_OC_STOP_FILE'] = join(botRoot, 'stopped');
     process.env['FAKE_OC_ENV_FILE'] = join(botRoot, 'env.json');

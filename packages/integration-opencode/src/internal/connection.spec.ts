@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -21,18 +21,25 @@ import {
 
 const PASSWORD = 'secret-password';
 
-/** A server that checks Basic auth and answers the probe like OpenCode does. */
-async function startFakeServer(password = PASSWORD): Promise<{
+/**
+ * A server that checks Basic auth and answers the probe like OpenCode does. The
+ * password may be read per request, for a server whose password Morse chooses
+ * after the fake exists.
+ */
+async function startFakeServer(password: string | (() => string) = PASSWORD): Promise<{
   url: string;
   server: Server;
   close: () => Promise<void>;
   requests: () => number;
 }> {
   let requests = 0;
-  const expected = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
+  const expectedFor = (): string => {
+    const secret = typeof password === 'function' ? password() : password;
+    return `Basic ${Buffer.from(`opencode:${secret}`).toString('base64')}`;
+  };
   const server = createServer((request, response) => {
     requests += 1;
-    if (request.headers.authorization !== expected) {
+    if (request.headers.authorization !== expectedFor()) {
       response.writeHead(401, { 'content-type': 'application/json' });
       response.end('{"error":"unauthorized"}');
       return;
@@ -74,8 +81,13 @@ if (process.env.FAKE_OC_EXIT === '1') {
 } else if (process.env.FAKE_OC_SILENT === '1') {
   setInterval(() => {}, 1000);
 } else {
+  // Like every real build: the password in OPENCODE_SERVER_PASSWORD is the one
+  // checked. Only 2.x also announces it; 1.19 prints the address alone.
+  fs.writeFileSync(process.env.FAKE_OC_PASSWORD_FILE, process.env.OPENCODE_SERVER_PASSWORD);
   console.log('server listening on ' + process.env.FAKE_OC_URL);
-  console.log('server password ' + process.env.FAKE_OC_PASSWORD);
+  if (process.env.FAKE_OC_ANNOUNCE_PASSWORD === '1') {
+    console.log('server password ' + process.env.OPENCODE_SERVER_PASSWORD);
+  }
   setInterval(() => {}, 1000);
 }
 `;
@@ -173,8 +185,10 @@ describe('connectOpenCode', () => {
     );
   });
 
-  it('spawns, verifies and stops its own server', async () => {
-    const fake = await startFakeServer();
+  it('spawns, keys, verifies and stops its own server', async () => {
+    // A 2.x build: announces the address and the password Morse set.
+    const passwordFile = join(dir, 'password');
+    const fake = await startFakeServer(() => readFileSync(passwordFile, 'utf8'));
     const stopFile = join(dir, 'stopped');
     try {
       connection = await connectOpenCode({
@@ -182,15 +196,46 @@ describe('connectOpenCode', () => {
         env: {
           ...process.env,
           FAKE_OC_URL: fake.url,
-          FAKE_OC_PASSWORD: PASSWORD,
+          FAKE_OC_PASSWORD_FILE: passwordFile,
+          FAKE_OC_ANNOUNCE_PASSWORD: '1',
           FAKE_OC_STOP_FILE: stopFile,
         },
       });
-      expect(connection).toMatchObject({ baseUrl: fake.url, password: PASSWORD, owned: true });
+      const chosen = readFileSync(passwordFile, 'utf8');
+      expect(chosen.length).toBeGreaterThanOrEqual(16);
+      expect(connection).toMatchObject({ baseUrl: fake.url, password: chosen, owned: true });
 
       await connection.close();
       connection = undefined;
       // The spawned process is gone, not just detached.
+      expect(existsSync(stopFile)).toBe(gracefulStop);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it('keys the server itself for a build that announces no password', async () => {
+    // 1.19: honours OPENCODE_SERVER_PASSWORD but prints only its address —
+    // unsecured, and nothing to wait for, unless the password arrives in its env.
+    const passwordFile = join(dir, 'password');
+    const stopFile = join(dir, 'stopped');
+    const fake = await startFakeServer(() => readFileSync(passwordFile, 'utf8'));
+    try {
+      connection = await connectOpenCode({
+        bin: fakeBinary(dir),
+        env: {
+          ...process.env,
+          FAKE_OC_URL: fake.url,
+          FAKE_OC_PASSWORD_FILE: passwordFile,
+          FAKE_OC_STOP_FILE: stopFile,
+        },
+      });
+      const chosen = readFileSync(passwordFile, 'utf8');
+      expect(chosen.length).toBeGreaterThanOrEqual(16);
+      expect(connection).toMatchObject({ baseUrl: fake.url, password: chosen, owned: true });
+
+      await connection.close();
+      connection = undefined;
       expect(existsSync(stopFile)).toBe(gracefulStop);
     } finally {
       await fake.close();
@@ -205,7 +250,7 @@ describe('connectOpenCode', () => {
         env: { ...process.env, FAKE_OC_SILENT: '1', FAKE_OC_STOP_FILE: stopFile },
         startupTimeoutMs: 200,
       }),
-    ).rejects.toThrow(/did not announce its address and password/);
+    ).rejects.toThrow(/did not announce its address/);
     expect(existsSync(stopFile)).toBe(gracefulStop);
   });
 

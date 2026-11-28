@@ -4,9 +4,11 @@
 #
 # - `toolchain` downloads the checksum-verified ezx supervisor (needed only at
 #   run time, so it lives here — an EZX_VERSION bump is a curl-sized layer).
-# - `engines` installs the pinned agent engines: pi (npm) and OpenCode
-#   (release tarball, checksum-verified). Engine bumps never invalidate the
-#   source build below.
+# - `engines` installs the agent engines: pi (npm) and OpenCode (release
+#   tarball). Both default to latest — a rebuild picks up new engines. To hold
+#   an image reproducible, pass --build-arg PI_VERSION=x and
+#   OPENCODE_VERSION=vx together with their checksums (below). Engine bumps are
+#   their own layer and never invalidate the source build below.
 # - `setup` builds Morse from source (libraries, Angular UI, server bundle).
 #   Its cache key is the app version plus manifests — the things that genuinely
 #   require recompiling.
@@ -22,8 +24,18 @@ FROM debian:bookworm-slim AS base
 
 ARG NODE_VERSION=v22.23.5
 ARG EZX_VERSION=0.8.1
-ARG PI_VERSION=1.6.1
-ARG OPENCODE_VERSION=v1.19.6
+# Floating by default: a rebuild gets the current pi and OpenCode. Pin with
+# --build-arg PI_VERSION=1.6.1 --build-arg OPENCODE_VERSION=v1.19.6
+# --build-arg OC_SHA_X64=<sha> --build-arg OC_SHA_ARM64=<sha> (checksums from
+# the release's `opencode-linux-*.tar.gz` assets). Morse adapts to both 1.x and
+# 2.x: it supplies the server password itself rather than waiting for 2.x to
+# announce one.
+ARG PI_VERSION=latest
+ARG OPENCODE_VERSION=latest
+# Only consulted when OPENCODE_VERSION is pinned: latest moves, so a fixed
+# checksum cannot follow it.
+ARG OC_SHA_X64=
+ARG OC_SHA_ARM64=
 ARG TARGETARCH
 
 # Build metadata
@@ -78,12 +90,12 @@ RUN set -e; \
 FROM toolchain AS engines
 
 RUN set -e; \
-    if [ "${TARGETARCH}" = "arm64" ]; then OC_ARCH=arm64; OC_SHA=5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac; \
-    else OC_ARCH=x64; OC_SHA=47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057; fi; \
+    if [ "${TARGETARCH}" = "arm64" ]; then OC_ARCH=arm64; OC_SHA="${OC_SHA_ARM64}"; \
+    else OC_ARCH=x64; OC_SHA="${OC_SHA_X64}"; fi; \
     mkdir -p /opt/engines; \
     npm install --prefix /opt/engines -g @earendil-works/pi-coding-agent@${PI_VERSION}; \
-    curl -fsSL https://github.com/sst/opencode/releases/download/${OPENCODE_VERSION}/opencode-linux-${OC_ARCH}.tar.gz -o /tmp/opencode.tar.gz; \
-    echo "${OC_SHA}  /tmp/opencode.tar.gz" | sha256sum -c -; \
+    curl -fsSL "https://github.com/sst/opencode/releases/${OPENCODE_VERSION}/download/opencode-linux-${OC_ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
+    if [ -n "${OC_SHA}" ]; then echo "${OC_SHA}  /tmp/opencode.tar.gz" | sha256sum -c -; fi; \
     mkdir -p /opt/engines/opencode && tar -xzf /tmp/opencode.tar.gz -C /opt/engines/opencode; \
     rm /tmp/opencode.tar.gz; \
     ln -s /opt/engines/opencode/opencode /opt/engines/bin/opencode

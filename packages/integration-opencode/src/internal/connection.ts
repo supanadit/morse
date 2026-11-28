@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { AgentUnavailableError } from '@morse/system';
 import { basicAuth } from './auth.js';
 import { resolveOpenCodeSpawn, type OpenCodeSpawn } from './resolve-opencode.js';
@@ -108,7 +109,7 @@ async function attach(options: OpenCodeConnectionOptions): Promise<OpenCodeConne
   };
 }
 
-/** Spawns a private server and reads the address/password it announces. */
+/** Spawns a private server, keyed by a password of Morse's own, and reads the address it announces. */
 async function spawnServer(options: OpenCodeConnectionOptions): Promise<OpenCodeConnection> {
   const env = options.env ?? process.env;
   const bin = options.bin?.trim() || 'opencode';
@@ -120,13 +121,18 @@ async function spawnServer(options: OpenCodeConnectionOptions): Promise<OpenCode
     throw missingBinary(bin);
   }
 
+  // Morse picks the password and hands it to the server: every OpenCode this
+  // adapter drives reads OPENCODE_SERVER_PASSWORD, and older builds (1.19) never
+  // announce one of their own — without it they start unsecured and print
+  // nothing to wait for. A build that does announce one is believed over this.
+  const password = randomBytes(24).toString('base64url');
   let child: ChildProcess;
   try {
     child = spawn(
       plan.command,
       [...plan.prefix, 'serve', '--hostname', '127.0.0.1', '--port', '0'],
       {
-        env,
+        env: { ...env, OPENCODE_SERVER_PASSWORD: password },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       },
@@ -138,19 +144,19 @@ async function spawnServer(options: OpenCodeConnectionOptions): Promise<OpenCode
   }
 
   try {
-    const announcement = await readAnnouncement(
+    const baseUrl = await readAnnouncement(
       child,
       bin,
       options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
     );
     try {
-      await probe(announcement.url, announcement.password);
+      await probe(baseUrl, password);
     } catch (error: unknown) {
-      throw describeProbeFailure(announcement.url, error);
+      throw describeProbeFailure(baseUrl, error);
     }
     return {
-      baseUrl: announcement.url,
-      password: announcement.password,
+      baseUrl,
+      password,
       owned: true,
       close: () => stop(child),
     };
@@ -162,31 +168,24 @@ async function spawnServer(options: OpenCodeConnectionOptions): Promise<OpenCode
   }
 }
 
-/** The two lines `opencode serve` prints on startup. */
-interface Announcement {
-  url: string;
-  password: string;
-}
-
 /**
- * Reads stdout until both announcement lines have been seen.
+ * Reads stdout until the address line has been seen, and returns it.
  *
- * A process that exits first (a bad install, a port clash) fails immediately with
- * its own stderr instead of waiting out the timeout, and the timeout itself fails
- * with the output so far — enough to see a prompt or an error the parser missed.
+ * Only the address: the password is the one Morse set in the server's env, and
+ * every build this adapter drives checks that one. A `server password` line may
+ * follow the address or never come (1.19 prints none), so waiting for it would
+ * be waiting on a version. A process that exits first (a bad install, a port
+ * clash) fails immediately with its own stderr instead of waiting out the
+ * timeout, and the timeout itself fails with the output so far — enough to see
+ * a prompt or an error the parser missed.
  */
-function readAnnouncement(
-  child: ChildProcess,
-  bin: string,
-  timeoutMs: number,
-): Promise<Announcement> {
-  return new Promise<Announcement>((resolve, reject) => {
+function readAnnouncement(child: ChildProcess, bin: string, timeoutMs: number): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     let output = '';
     let url: string | undefined;
-    let password: string | undefined;
     let settled = false;
 
-    const finish = (error: Error | undefined, announcement?: Announcement): void => {
+    const finish = (error: Error | undefined, address?: string): void => {
       if (settled) {
         return;
       }
@@ -198,16 +197,15 @@ function readAnnouncement(
       child.removeListener('exit', onExit);
       if (error !== undefined) {
         reject(error);
-      } else if (announcement !== undefined) {
-        resolve(announcement);
+      } else if (address !== undefined) {
+        resolve(address);
       }
     };
 
     const inspect = (): void => {
       url ??= /server listening on\s+(https?:\/\/\S+)/.exec(output)?.[1];
-      password ??= /server password\s+(\S+)/.exec(output)?.[1];
-      if (url !== undefined && password !== undefined) {
-        finish(undefined, { url: normalizeUrl(url), password });
+      if (url !== undefined) {
+        finish(undefined, normalizeUrl(url));
       }
     };
 
@@ -232,7 +230,7 @@ function readAnnouncement(
     const timer = setTimeout(() => {
       finish(
         new AgentUnavailableError(
-          `OpenCode did not announce its address and password within ${Math.round(timeoutMs / 1000)}s.` +
+          `OpenCode did not announce its address within ${Math.round(timeoutMs / 1000)}s.` +
             (output.trim().length > 0 ? `\n${tail(output)}` : ''),
         ),
       );
