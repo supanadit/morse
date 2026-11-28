@@ -12,6 +12,7 @@ import {
 import { resolveEngineContext } from '@morse/engine-config';
 import { openCodeConfigPath, openCodeProviderEntry } from './bot-layout.js';
 import { importOpenCodeGoCredential } from './internal/go-auth.js';
+import { awaitSettledCatalog, credentialedProviders } from './internal/catalog-poll.js';
 import { botUserSpaceEnv } from './bot-user-space.js';
 import { OpenCodeEngine } from './opencode-engine.js';
 import { OpenCodeMcp } from './opencode-mcp.js';
@@ -113,6 +114,23 @@ export async function createBotOpenCodeEngine(
   }
   const api = new OpenCodeApi(connection);
   const stream = new OpenCodeEventStream(connection, { logger: options.logger });
+  // The server's catalog is still loading at this point: keyless models answer
+  // at once, credentialed ones land once the server's background fetch
+  // finishes. Waiting for the credentialed providers to materialize here
+  // (bounded, best-effort) is what keeps a fresh bot or probe from reporting
+  // a healthy provider as empty.
+  try {
+    const credentialProviders = credentialedProviders(
+      options.botRoot,
+      { url: connection.baseUrl, password: connection.password },
+      options.logger,
+    );
+    await awaitSettledCatalog(api, options.botRoot, options.logger, {
+      credentialProviders,
+    });
+  } catch (error: unknown) {
+    options.logger.warn('The bot engine catalog could not settle before first use', error);
+  }
   // The same assembly as `createOpenCodeEngine`, with both administrations
   // pinned to the config directory the server itself reads: configDir is
   // OpenCode's own dir, i.e. the XDG *base* plus `opencode/` (the resolvers

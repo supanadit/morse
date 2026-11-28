@@ -112,6 +112,12 @@ function fakeBinary(dir: string): string {
     path,
     `#!/usr/bin/env node
 const fs = require('node:fs');
+// Only a served engine is a spawn: credential reads (auth list) and
+// imports run the same binary without starting a server.
+if (!process.argv.includes('serve')) {
+  console.log('[]');
+  process.exit(0);
+}
 fs.appendFileSync(process.env.FAKE_OC_SPAWNS, 'spawn\\n');
 fs.writeFileSync(process.env.FAKE_OC_PASSWORD_FILE, process.env.OPENCODE_SERVER_PASSWORD);
 fs.writeFileSync(

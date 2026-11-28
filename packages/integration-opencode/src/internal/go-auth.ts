@@ -27,6 +27,8 @@ export async function importOpenCodeGoCredential(
   botRoot: string,
   logger: MorseLogger,
 ): Promise<boolean> {
+  // The export answers undefined when there is no Go login to bring: only a
+  // real import failure is worth a log line, and it must not carry the secret.
   const payload = readOpenCodeGoExport();
   if (payload === undefined) {
     return false;
@@ -46,9 +48,10 @@ export async function importOpenCodeGoCredential(
       },
     );
     return true;
-  } catch {
+  } catch (error: unknown) {
     // No Go login, no binary, or an import the engine refused: a bot that needs
     // Go says so plainly, and no secret is put in the message.
+    logger.warn('The Go login could not be imported into a bot', error);
     return false;
   } finally {
     await engine?.dispose();
