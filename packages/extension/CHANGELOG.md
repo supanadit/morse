@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.34.0 — 28 November 2026
+
+## 🚀 New Features
+
+- **Bots keep talking to each other** — until one chooses to stop
+- **Ask a teammate inside a thread** — an @handle there wakes that bot
+- **Bots know who is speaking** — every line is tagged human or bot
+- **Bots are told your handle** — every reply names the room's human
+- **@handles reach bots, never people** — a person's handle stays plain text
+- **Queued prompts survive a reload** — the queue is no longer page memory
+- **Drafts keep their picks** — engine, model, thinking and mode survive reopening
+- **Read on one device, read everywhere** — unread marks now sync
+
+## 🐛 Bug Fixes
+
+- Switching model mid-run applies to the next turn, not the running one
+- A model pick made during a run is marked pending everywhere
+- A session compacting in the background no longer looks idle
+- Queued prompts drain even when no tab is open
+- A failed model request ends as an error, so the queue waits
+- A queued compaction can be cancelled from the composer queue
+- Read marks stay read after a reload or a title change
+- Bots on older OpenCode servers work alongside newer ones
+- A malformed question no longer restarts the whole server
+- Bots using global configuration now list your models
+- Bots copy every stored login, not one named provider
+- A provider with a saved key no longer reads as having no models
+- Container sessions offer OpenCode again on newer servers
+- Each release ships the newest Pi and OpenCode versions
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.33.0...v0.34.0`](https://github.com/supanadit/morse/compare/v0.33.0...v0.34.0)
+
 ## 0.33.0 — 28 November 2026
 
 ## 🚀 New Features

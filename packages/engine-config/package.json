@@ -1,6 +1,6 @@
 {
   "name": "@morse/engine-config",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
   "type": "module",
   "description": "Engine-generic configuration foundation: files, sections and resource stores shared by every engine integration.",
