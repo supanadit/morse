@@ -11,7 +11,7 @@ import {
 } from '@morse/system';
 import { resolveEngineContext } from '@morse/engine-config';
 import { openCodeConfigPath, openCodeProviderEntry } from './bot-layout.js';
-import { importOpenCodeGoCredential } from './internal/go-auth.js';
+import { importOpenCodeCredentials } from './internal/stored-auth.js';
 import { awaitSettledCatalog, credentialedProviders } from './internal/catalog-poll.js';
 import { botUserSpaceEnv } from './bot-user-space.js';
 import { OpenCodeEngine } from './opencode-engine.js';
@@ -121,7 +121,6 @@ export async function createBotOpenCodeEngine(
   // a healthy provider as empty.
   try {
     const credentialProviders = credentialedProviders(
-      options.botRoot,
       { url: connection.baseUrl, password: connection.password },
       options.logger,
     );
@@ -339,8 +338,9 @@ function readJsonObject(path: string): Record<string, unknown> | undefined {
  * what a provider cloned from the catalog carries until this fills it. The copy
  * is whole records, because the frontend never sees a secret to send back.
  *
- * The Go login comes along best-effort through the same import a checked
- * "use my login" box would run; no login is nothing to copy, not a failure.
+ * The credentials OpenCode keeps in its own store (a subscription login, a
+ * coding plan — 2.x keeps none of them in these files) come along through
+ * `auth export`/`import`, best-effort: nothing stored is nothing to copy.
  * Missing global files are likewise success-with-nothing, while a malformed
  * one throws so a save says what it could not read.
  */
@@ -397,7 +397,7 @@ export async function importOpenCodeGlobalConfig(
   }
   writeConfigJson(botPath, { ...botConfig, [botBlockKey]: botProviders });
 
-  await importOpenCodeGoCredential(botRoot, logger);
+  await importOpenCodeCredentials(botRoot, logger);
   return true;
 }
 

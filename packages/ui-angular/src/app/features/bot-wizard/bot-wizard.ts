@@ -719,7 +719,6 @@ export class BotWizard {
           this.collectedCredentials(),
           requestId,
           undefined,
-          undefined,
           this.useGlobalConfig(),
         );
       });

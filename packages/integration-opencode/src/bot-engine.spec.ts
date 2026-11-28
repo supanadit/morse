@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentGateway } from '@morse/agent';
 import { AgentUnavailableError, silentLogger } from '@morse/system';
@@ -114,6 +114,19 @@ function fakeBinary(dir: string): string {
 const fs = require('node:fs');
 // Only a served engine is a spawn: credential reads (auth list) and
 // imports run the same binary without starting a server.
+const auth = process.argv.indexOf('auth');
+if (auth !== -1 && process.argv[auth + 1] === 'export' && process.env.FAKE_OC_EXPORT === 'every') {
+  process.stdout.write(JSON.stringify([
+    { id: 'c1', integrationID: 'opencode-go', value: { type: 'key', key: 'go-secret' } },
+    { id: 'c2', integrationID: 'zai-coding-plan', value: { type: 'api', key: 'zai-secret' } },
+    { id: 'c3', integrationID: 'typed-here', value: { type: 'api', key: 'old-secret' } },
+  ]));
+  process.exit(0);
+}
+if (auth !== -1 && process.argv[auth + 1] === 'import') {
+  require('node:fs').writeFileSync(process.env.FAKE_OC_IMPORTED, require('node:fs').readFileSync(0, 'utf8'));
+  process.exit(0);
+}
 if (!process.argv.includes('serve')) {
   console.log('[]');
   process.exit(0);
@@ -873,6 +886,57 @@ describe('importOpenCodeGlobalConfig', () => {
     };
     expect(Object.keys(written.providers).sort()).toEqual(['acme', 'mine', 'shared']);
     expect(written.providers['acme']).toEqual(acme);
+  });
+
+  it('brings every stored login along, and never over the bot’s own pasted key', async () => {
+    const xdgData = tempRoot();
+    const botRoot = tempRoot();
+    process.env.XDG_DATA_HOME = xdgData;
+    // OpenCode 2 keeps logins in its store, not in auth.json: the only way to
+    // read them is the CLI's own export, which names every integration.
+    const imported = join(botRoot, 'imported.json');
+    const fake = await startFakeServer();
+    // This block's `beforeEach` empties PATH; the fake's `#!/usr/bin/env node`
+    // still needs the real interpreter beside it.
+    process.env.PATH = `${fakeBinary(botRoot)}${delimiter}${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`;
+    for (const key of [
+      'FAKE_OC_EXPORT',
+      'FAKE_OC_IMPORTED',
+      'FAKE_OC_URL',
+      'FAKE_OC_PASSWORD',
+      'FAKE_OC_PASSWORD_FILE',
+      'FAKE_OC_SPAWNS',
+      'FAKE_OC_ENV_FILE',
+      'FAKE_OC_STOP_FILE',
+    ]) {
+      previous[key] = process.env[key];
+    }
+    process.env.FAKE_OC_EXPORT = 'every';
+    process.env.FAKE_OC_IMPORTED = imported;
+    process.env.FAKE_OC_URL = fake.url;
+    process.env.FAKE_OC_PASSWORD = PASSWORD;
+    process.env.FAKE_OC_PASSWORD_FILE = join(botRoot, 'password');
+    process.env.FAKE_OC_SPAWNS = join(botRoot, 'spawns.log');
+    process.env.FAKE_OC_ENV_FILE = join(botRoot, 'env.json');
+    process.env.FAKE_OC_STOP_FILE = join(botRoot, 'stopped');
+    // The reader pasted a key for one provider in the wizard: it must win.
+    mkdirSync(join(botRoot, 'sessions', 'opencode'), { recursive: true });
+    writeFileSync(
+      join(botRoot, 'sessions', 'opencode', 'auth.json'),
+      JSON.stringify({ 'typed-here': { type: 'api', key: 'typed-in-wizard' } }),
+    );
+
+    try {
+      await importOpenCodeGlobalConfig(botRoot, silentLogger);
+    } finally {
+      await fake.close();
+    }
+
+    const sent = JSON.parse(readFileSync(imported, 'utf8')) as { integrationID: string }[];
+    expect(sent.map((entry) => entry.integrationID)).toEqual(['opencode-go', 'zai-coding-plan']);
+    expect(
+      readJson(join(botRoot, 'sessions', 'opencode', 'auth.json')),
+    ).toMatchObject({ 'typed-here': { type: 'api', key: 'typed-in-wizard' } });
   });
 
   it('succeeds with nothing to copy when the machine holds no OpenCode config', async () => {

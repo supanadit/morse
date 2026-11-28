@@ -438,7 +438,7 @@ class FakeAdapter implements BotEngineAdapter {
   readonly capabilities: BotEngineCapabilities;
   readonly factories: FakeFactory[] = [];
   readonly layout: FakeLayout;
-  importGoCredential?: (botRoot: string) => Promise<boolean>;
+  importStoredCredentials?: (botRoot: string) => Promise<boolean>;
   importGlobalConfig?: (botRoot: string) => Promise<boolean>;
   readonly envs: NodeJS.ProcessEnv[] = [];
 
@@ -694,21 +694,6 @@ async function twoBots(service: BotService): Promise<void> {
 }
 
 describe('BotService creation', () => {
-  it('createBot imports the machine’s Go login when the wizard asks for it', async () => {
-    const { adapter, service } = harness({ models: [MODEL] });
-    const imported = vi.fn(async () => true);
-    adapter.importGoCredential = imported;
-
-    await service.createBot(botInput({ useGoAuth: true }));
-    expect(imported).toHaveBeenCalledTimes(1);
-    expect(imported.mock.calls[0]?.[0]).toContain('/forge');
-
-    adapter.importGoCredential = async () => false;
-    await expect(
-      service.createBot(botInput({ username: 'sable', useGoAuth: true })),
-    ).rejects.toThrow(/opencode auth login/);
-  });
-
   it('createBot snapshots the global config when the wizard asks for it', async () => {
     const { adapter, service } = harness({ models: [MODEL] });
     const imported = vi.fn(async () => true);
@@ -5166,24 +5151,12 @@ describe('BotService model probes', () => {
     expect(readdirSync(root).some((name) => name.startsWith('.probe-'))).toBe(false);
   });
 
-  it('probeModels imports the Go login into the throwaway root before asking for models', async () => {
-    const { root, adapter, service } = harness({ models: [MODEL] });
-    const imported = vi.fn(async () => true);
-    adapter.importGoCredential = imported;
-
-    await service.probeModels('fake', [], CREDENTIALS, undefined, true);
-
-    expect(imported).toHaveBeenCalledTimes(1);
-    expect(imported.mock.calls[0]?.[0]).toContain(join(root, '.probe-'));
-    expect(adapter.credentialWrites[0]?.entries).toEqual(CREDENTIALS);
-  });
-
   it('probeModels snapshots global config when the picker asks for it', async () => {
     const { root, adapter, service } = harness({ models: [MODEL] });
     const imported = vi.fn(async () => true);
     adapter.importGlobalConfig = imported;
 
-    await service.probeModels('fake', [], CREDENTIALS, undefined, false, true);
+    await service.probeModels('fake', [], CREDENTIALS, undefined, true);
 
     expect(imported).toHaveBeenCalledTimes(1);
     expect(imported.mock.calls[0]?.[0]).toContain(join(root, '.probe-'));

@@ -177,10 +177,9 @@ export class ScopedBotPort implements BotControllerPort {
     envVars: string[],
     credentials: { provider: string; apiKey: string }[],
     extraEnv?: Record<string, string>,
-    useGoAuth?: boolean,
     useGlobalConfig?: boolean,
   ): Promise<ModelRef[]> {
-    return this.service.probeModels(kind, envVars, credentials, extraEnv, useGoAuth, useGlobalConfig);
+    return this.service.probeModels(kind, envVars, credentials, extraEnv, useGlobalConfig);
   }
 
   discoverModels(

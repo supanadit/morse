@@ -228,8 +228,6 @@ export interface BotEngineConfig {
   agentsMd?: string;
   /** Provider keys the wizard collected. Each engine stores them its own way. */
   credentials: { provider: string; apiKey: string }[];
-  /** Import the machine's OpenCode Go login, when the engine can use one. */
-  useGoAuth?: boolean;
   /**
    * Provider and model overrides, in the engine's own provider config. A record
    * with no `credential` is an edit's correction of model fields: the layout keeps

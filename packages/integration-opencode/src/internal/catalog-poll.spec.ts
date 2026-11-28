@@ -71,7 +71,7 @@ describe('awaitSettledCatalog', () => {
 
 describe('credentialedProviders', () => {
   it('returns an empty list when nothing is stored and the CLI fails', () => {
-    const ids = credentialedProviders('/nonexistent-root-xyz', { url: '', password: '' }, silentLogger);
+    const ids = credentialedProviders({ url: '', password: '' }, silentLogger);
     expect(ids).toEqual([]);
   });
 });

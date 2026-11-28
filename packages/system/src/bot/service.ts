@@ -132,8 +132,12 @@ export interface BotEngineAdapter {
    * call would start a second server for the same bot.
    */
   createFactory(botRoot: string, env: NodeJS.ProcessEnv): BotGatewayFactory;
-  /** Copies a login into one bot's isolated store, when the engine supports it. */
-  importGoCredential?(botRoot: string): Promise<boolean>;
+  /**
+   * Copies the machine's stored engine credentials into one bot's isolated
+   * store — every integration the user is logged into, never a chosen one —
+   * when the engine keeps credentials outside its config files.
+   */
+  importStoredCredentials?(botRoot: string): Promise<boolean>;
   /**
    * Copies the machine's global engine configuration — stored credentials and
    * custom providers — into one bot's isolated store, when the engine supports
@@ -631,7 +635,6 @@ export class BotService {
       writeBotIdentity(botRoot, record);
       this.writeEngineConfig(botRoot, adapter, input, input.credentials);
       await this.importGlobalConfig(adapter, botRoot, input.useGlobalConfig === true);
-      await this.importGoAuth(adapter, botRoot, input.useGoAuth === true);
       // The probe runs as the bot itself — its root, its credentials — so a bad
       // key fails here instead of on the reader's first message.
       await this.readModels(factory, this.workspaceOf(record.username));
@@ -769,23 +772,6 @@ export class BotService {
     this.emit({ type: 'roster' });
   }
 
-  /** Brings the machine's Go login into a bot before its engine is asked to run. */
-  private async importGoAuth(
-    adapter: BotEngineAdapter,
-    botRoot: string,
-    requested: boolean,
-  ): Promise<void> {
-    if (!requested) {
-      return;
-    }
-    const imported = await adapter.importGoCredential?.(botRoot);
-    if (imported !== true) {
-      throw new Error(
-        'This machine has no OpenCode Go login for that bot. Run `opencode auth login` first.',
-      );
-    }
-  }
-
   /**
    * Snapshots the machine's global engine configuration into a bot that asked
    * for it: stored keys and custom providers land in the bot's isolated store,
@@ -823,7 +809,6 @@ export class BotService {
       persona: input.persona,
       ...(input.agentsMd === undefined ? {} : { agentsMd: input.agentsMd }),
       credentials,
-      useGoAuth: (input as { useGoAuth?: boolean }).useGoAuth,
       // An edit may correct model fields without holding the credential, so a
       // provider arrives with `api`/`credential` possibly absent and the layout
       // keeps whatever the engine file already says.
@@ -909,7 +894,6 @@ export class BotService {
     // boundary create enforces applies here — before identity or settings change.
     assertSubagentNames(input.subagents);
     assertMcpServers(input.mcpServers ?? []);
-    await this.importGoAuth(adapter, this.botRoot(bot.username), input.useGoAuth === true);
     // An absent map keeps the saved values; an explicit one replaces them, even
     // when the form emptied it.
     const extraEnv = input.env === undefined ? bot.env : input.env;
@@ -1201,7 +1185,6 @@ export class BotService {
     envVars: string[],
     credentials: { provider: string; apiKey: string }[],
     extraEnv?: Record<string, string>,
-    useGoAuth = false,
     useGlobalConfig = false,
   ): Promise<ModelRef[]> {
     const adapter = this.options.adapters[kind];
@@ -1228,7 +1211,6 @@ export class BotService {
         credentials,
         providers: [],
       });
-      await this.importGoAuth(adapter, probeRoot, useGoAuth);
       // The wizard's checkbox means the finished bot inherits the machine's
       // keys: probe with that same snapshot, or the picker lists an empty bot
       // while the bot it creates would have models.

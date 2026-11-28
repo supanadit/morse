@@ -249,7 +249,6 @@ describe('MorseSessionFactory bot wiring', () => {
       ['KEY'],
       [{ provider: 'anthropic', apiKey: 'sk-test' }],
       undefined,
-      undefined,
       true,
     );
     expect(messages.at(-1)).toEqual({

@@ -27,7 +27,7 @@ export {
   writeOpenCodeSubagents,
   type BotOpenCodeEngineOptions,
 } from './bot-engine.js';
-export { importOpenCodeGoCredential } from './internal/go-auth.js';
+export { importOpenCodeCredentials } from './internal/stored-auth.js';
 export { OpenCodeSessionCatalog } from './opencode-session-catalog.js';
 export {
   findOpenCodeBinary,

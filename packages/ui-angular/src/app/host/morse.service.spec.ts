@@ -420,7 +420,6 @@ describe('MorseService bot mode', () => {
       [{ provider: 'anthropic', apiKey: 'sk-probe' }],
       'probe-1',
       undefined,
-      undefined,
       true,
     );
 

@@ -382,8 +382,6 @@ export interface BotCreateInput {
   engineKind: string;
   /** The bot's own credentials; pasted here, or copied from global on request. */
   credentials: BotCredentialInput[];
-  /** Use the OpenCode Go login already stored on this machine (OpenCode bots only). */
-  useGoAuth?: boolean;
   /**
    * Copy this machine's global engine configuration — stored keys and custom
    * providers — into this bot on submit. A snapshot: the bot keeps its own
@@ -484,8 +482,6 @@ export interface BotUpdateInput {
   subagents?: Array<{ name: string; prompt: string }>;
   /** Credentials to write into the bot's config; omitted leaves the stored ones. */
   credentials?: BotCredentialInput[];
-  /** Use the machine's OpenCode Go login for this bot (OpenCode bots only). */
-  useGoAuth?: boolean;
   /**
    * Copy this machine's current global engine configuration — stored keys and
    * custom providers — into this bot on save. A snapshot: the bot keeps its

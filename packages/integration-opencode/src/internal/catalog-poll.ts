@@ -1,6 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { MorseLogger } from '@morse/system';
 import { findOpenCodeBinary } from './resolve-opencode.js';
 import type { OpenCodeApi } from './client.js';
@@ -74,35 +72,22 @@ export async function awaitSettledCatalog(
 }
 
 /**
- * Every provider id the bot's server holds a credential for: the keys Morse
- * wrote into the bot's own `auth.json`, plus what the server's store already
- * answers (a snapshot the global import just ran, or a login from an earlier
- * boot of the same roots). Best-effort: a store that cannot be read simply
- * contributes nothing, and the catalog read stays a single pass.
+ * Provider ids the bot's server holds a credential for in its own store
+ * (`auth list`): a login the snapshot just imported, or one from an earlier
+ * boot of the same roots. These are the providers whose models land only
+ * after the server's background fetch, so they are the ones worth waiting
+ * for. A key the reader pasted is not listed here on purpose: it is visible
+ * in the wizard, and a wrong one must read as "no models" at once rather
+ * than hold the probe for the whole budget.
+ *
+ * Best-effort: a store that cannot be read contributes nothing, and the
+ * catalog read stays a single pass.
  */
 export function credentialedProviders(
-  botRoot: string,
   server: { url: string; password: string },
   logger: MorseLogger,
 ): string[] {
   const ids = new Set<string>();
-  try {
-    const raw = readFileSync(join(botRoot, 'sessions', 'opencode', 'auth.json'), 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null) {
-      for (const [id, entry] of Object.entries(parsed)) {
-        if (
-          typeof entry === 'object' &&
-          entry !== null &&
-          typeof (entry as Record<string, unknown>)['key'] === 'string'
-        ) {
-          ids.add(id);
-        }
-      }
-    }
-  } catch {
-    // No bot keys yet: the server's own store may still hold the snapshot.
-  }
   try {
     const out = execFileSync(
       findOpenCodeBinary() ?? 'opencode',

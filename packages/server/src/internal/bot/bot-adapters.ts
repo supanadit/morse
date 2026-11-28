@@ -11,7 +11,7 @@ import {
   importOpenCodeGlobalConfig,
   openCodeBotLayout,
   opencodeBotAdapterFactory,
-  importOpenCodeGoCredential,
+  importOpenCodeCredentials,
 } from '@morse/integration-opencode';
 
 /**
@@ -48,11 +48,12 @@ export function createBotAdapters(deps: { logger: MorseLogger }): Record<string,
       // the reader's own engine; dropping the env would silently cost a bot
       // every KEY=value it was given.
       createFactory: (botRoot, env) => opencodeBotAdapterFactory(botRoot, logger, env),
-      // A Go login lives in the user's OpenCode store, not in a field. The host
-      // reads it when a probe or a save asks for Go; it never reaches a client.
-      importGoCredential: (botRoot) => importOpenCodeGoCredential(botRoot, logger),
+      // OpenCode 2 keeps credentials in the user's store, not in a file: every
+      // integration they are logged into. The host reads it for a probe or a
+      // save that asks for global configuration; it never reaches a client.
+      importStoredCredentials: (botRoot) => importOpenCodeCredentials(botRoot, logger),
       // A checked "Use global configuration" snapshots the machine's auth
-      // store and custom providers into the bot, Go login included; the bot
+      // store and custom providers into the bot, stored logins included; the bot
       // wins on conflict.
       importGlobalConfig: (botRoot) => importOpenCodeGlobalConfig(botRoot, logger),
       // OpenCode's `opencode.json` follows opencode.ai/config.json: model,
