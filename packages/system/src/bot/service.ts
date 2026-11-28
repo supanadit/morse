@@ -1202,6 +1202,7 @@ export class BotService {
     credentials: { provider: string; apiKey: string }[],
     extraEnv?: Record<string, string>,
     useGoAuth = false,
+    useGlobalConfig = false,
   ): Promise<ModelRef[]> {
     const adapter = this.options.adapters[kind];
     if (adapter === undefined) {
@@ -1228,6 +1229,10 @@ export class BotService {
         providers: [],
       });
       await this.importGoAuth(adapter, probeRoot, useGoAuth);
+      // The wizard's checkbox means the finished bot inherits the machine's
+      // keys: probe with that same snapshot, or the picker lists an empty bot
+      // while the bot it creates would have models.
+      await this.importGlobalConfig(adapter, probeRoot, useGlobalConfig);
       factory = adapter.createFactory(probeRoot, this.engineEnv(envVars, undefined, extraEnv));
       return await this.readModels(factory, workspace);
     } finally {

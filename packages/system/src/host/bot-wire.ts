@@ -95,6 +95,7 @@ export class BotWire {
             message.payload.credentials,
             message.payload.env,
             message.payload.useGoAuth,
+            message.payload.useGlobalConfig,
           ),
         );
         if (result.ok) {

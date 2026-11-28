@@ -355,6 +355,8 @@ export interface BotProbeModelsMessage extends ClientMessageBase {
     requestId: string;
     /** Ask the engine to include models the machine's OpenCode Go login unlocks. */
     useGoAuth?: boolean;
+    /** Probe with the same global snapshot this bot will get on submit. */
+    useGlobalConfig?: boolean;
   };
 }
 

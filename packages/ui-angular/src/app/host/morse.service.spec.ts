@@ -419,6 +419,9 @@ describe('MorseService bot mode', () => {
       ['ANTHROPIC_API_KEY'],
       [{ provider: 'anthropic', apiKey: 'sk-probe' }],
       'probe-1',
+      undefined,
+      undefined,
+      true,
     );
 
     expect(lastFrame(transport)).toEqual({
@@ -428,6 +431,7 @@ describe('MorseService bot mode', () => {
         envVars: ['ANTHROPIC_API_KEY'],
         credentials: [{ provider: 'anthropic', apiKey: 'sk-probe' }],
         requestId: 'probe-1',
+        useGlobalConfig: true,
       },
     });
   });

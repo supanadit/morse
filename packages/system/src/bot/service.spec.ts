@@ -5178,6 +5178,27 @@ describe('BotService model probes', () => {
     expect(adapter.credentialWrites[0]?.entries).toEqual(CREDENTIALS);
   });
 
+  it('probeModels snapshots global config when the picker asks for it', async () => {
+    const { root, adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGlobalConfig = imported;
+
+    await service.probeModels('fake', [], CREDENTIALS, undefined, false, true);
+
+    expect(imported).toHaveBeenCalledTimes(1);
+    expect(imported.mock.calls[0]?.[0]).toContain(join(root, '.probe-'));
+  });
+
+  it('probeModels leaves global config alone when the picker does not ask', async () => {
+    const { adapter, service } = harness({ models: [MODEL] });
+    const imported = vi.fn(async () => true);
+    adapter.importGlobalConfig = imported;
+
+    await service.probeModels('fake', [], CREDENTIALS);
+
+    expect(imported).not.toHaveBeenCalled();
+  });
+
   it('probeModels gives the throwaway root the wizard-only env values', async () => {
     const { root, adapter, service } = harness({ models: [MODEL] });
 

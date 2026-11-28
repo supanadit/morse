@@ -241,8 +241,17 @@ describe('MorseSessionFactory bot wiring', () => {
         envVars: ['KEY'],
         credentials: [{ provider: 'anthropic', apiKey: 'sk-test' }],
         requestId: 'req-9',
+        useGlobalConfig: true,
       },
     });
+    expect(bot.calls.probeModels).toHaveBeenCalledWith(
+      'pi',
+      ['KEY'],
+      [{ provider: 'anthropic', apiKey: 'sk-test' }],
+      undefined,
+      undefined,
+      true,
+    );
     expect(messages.at(-1)).toEqual({
       type: 'bot/models',
       payload: {

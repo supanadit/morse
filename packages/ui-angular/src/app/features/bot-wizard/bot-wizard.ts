@@ -698,7 +698,12 @@ export class BotWizard {
       if (entry === undefined || (entry.models ?? []).length > 0) {
         return;
       }
-      const fingerprint = [engine, picked, JSON.stringify(this.collectedCredentials())].join('\n');
+      const fingerprint = [
+        engine,
+        picked,
+        this.useGlobalConfig(),
+        JSON.stringify(this.collectedCredentials()),
+      ].join('\n');
       if (this.probedPrint()[picked] === fingerprint) {
         return;
       }
@@ -713,6 +718,9 @@ export class BotWizard {
           parseEnvVars(this.envVars()),
           this.collectedCredentials(),
           requestId,
+          undefined,
+          undefined,
+          this.useGlobalConfig(),
         );
       });
     });
@@ -729,7 +737,12 @@ export class BotWizard {
       }
       untracked(() => {
         const provider = this.probeProvider();
-        const fingerprint = [this.engineKind(), provider, JSON.stringify(this.collectedCredentials())].join('\n');
+        const fingerprint = [
+          this.engineKind(),
+          provider,
+          this.useGlobalConfig(),
+          JSON.stringify(this.collectedCredentials()),
+        ].join('\n');
         this.probedModels.update((held) => ({ ...held, [provider]: answer }));
         this.probedPrint.update((held) => ({ ...held, [provider]: fingerprint }));
         this.probeRequestId.set(null);

@@ -625,6 +625,7 @@ export class MorseService {
     requestId: string,
     env?: Record<string, string>,
     useGoAuth?: boolean,
+    useGlobalConfig?: boolean,
   ): void {
     this.transport.send({
       type: 'bot/probeModels',
@@ -635,6 +636,7 @@ export class MorseService {
         credentials,
         requestId,
         ...(useGoAuth === true ? { useGoAuth: true } : {}),
+        ...(useGlobalConfig === true ? { useGlobalConfig: true } : {}),
       },
     });
   }
