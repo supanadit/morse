@@ -24,12 +24,13 @@ FROM debian:bookworm-slim AS base
 
 ARG NODE_VERSION=v22.23.5
 ARG EZX_VERSION=0.8.1
-# Floating by default: a rebuild gets the current pi and OpenCode. Pin with
-# --build-arg PI_VERSION=1.6.1 --build-arg OPENCODE_VERSION=v1.19.6
-# --build-arg OC_SHA_X64=<sha> --build-arg OC_SHA_ARM64=<sha> (checksums from
-# the release's `opencode-linux-*.tar.gz` assets). Morse adapts to both 1.x and
-# 2.x: it supplies the server password itself rather than waiting for 2.x to
-# announce one.
+# Floating by default: a plain `docker build` gets the current pi and OpenCode.
+# The release workflow resolves both at tag time and passes them explicitly, so
+# a registry cache can never bake an older "latest" into a new release. To pin
+# by hand, pass PI_VERSION / OPENCODE_VERSION / OC_SHA_X64 / OC_SHA_ARM64 (the
+# checksums come from the release's `opencode-linux-*.tar.gz` assets). Morse
+# adapts to both 1.x and 2.x: it supplies the server password itself rather
+# than waiting for 2.x to announce one.
 ARG PI_VERSION=latest
 ARG OPENCODE_VERSION=latest
 # Only consulted when OPENCODE_VERSION is pinned: latest moves, so a fixed

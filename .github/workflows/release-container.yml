@@ -43,6 +43,31 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Resolve at release time, not at Dockerfile authoring time: a cached
+      # `latest` layer would otherwise bake yesterday's engines into a new tag.
+      # Explicit args also make the exact shipped versions visible in the log.
+      # Pinned builds are a manual choice (pass build args yourself), never a
+      # release default.
+      - name: Resolve current engine versions
+        id: engines
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pi="$(npm view @earendil-works/pi-coding-agent version)"
+          opencode="$(gh api repos/sst/opencode/releases/latest --jq .tag_name)"
+          if [[ ! "$pi" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Could not resolve a released pi version (got: $pi)."
+            exit 1
+          fi
+          if [[ ! "$opencode" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Could not resolve an OpenCode release tag (got: $opencode)."
+            exit 1
+          fi
+          echo "pi=$pi" >> "$GITHUB_OUTPUT"
+          echo "opencode=$opencode" >> "$GITHUB_OUTPUT"
+          echo "Release engines: pi $pi, OpenCode $opencode"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -62,6 +87,8 @@ jobs:
           build-args: |
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ steps.version.outputs.date }}
+            PI_VERSION=${{ steps.engines.outputs.pi }}
+            OPENCODE_VERSION=${{ steps.engines.outputs.opencode }}
           tags: |
             ghcr.io/supanadit/morse/server:${{ steps.version.outputs.version }}
             ghcr.io/supanadit/morse/server:latest
