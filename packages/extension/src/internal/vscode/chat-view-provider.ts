@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   ChatService,
+  ComposerHub,
   SessionRegistry,
   UnsupportedByHostError,
   describeError,
@@ -210,9 +211,11 @@ function buildCapabilities(deps: ChatViewProviderDeps): DeclaredHostCapabilities
     // window, so the frontend hides the mode switch instead of showing a
     // roster that can never load.
     bot: false,
-    // One webview per window: the composer's queue and drafts stay in the
-    // frontend, not on a host other clients would share.
-    sharedComposer: false,
+    // One window, one queue: the hub owns every session's queued follow-ups
+    // and scheduled compactions, persists them under the window's own storage
+    // and broadcasts to every chat surface — exactly like the browser host.
+    // Nothing queue-shaped lives in the page, so a reload cannot lose it.
+    sharedComposer: true,
     // Single-user only: the VS Code window never scopes sessions per login.
     multiuser: false,
   };
@@ -240,6 +243,45 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   private readonly sessionPanels = new Map<string, vscode.WebviewPanel>();
   /** The window's one MCP config watcher; shared by every panel that shows it. */
   private mcpWatcher: McpWatcher | undefined;
+  /**
+   * The window's one composer queue. Owned by the host (persisted under the
+   * window's storage), never by a webview: every chat surface in this window
+   * shows the same items, and a reload finds them still there.
+   */
+  private composerHub: ComposerHub | undefined;
+
+  /**
+   * The shared queue, created on first use. Its broadcasts fan out to every
+   * live chat surface, so a queue change in a session tab shows in the
+   * sidebar too; each controller's start snapshot covers a surface that opens
+   * later.
+   */
+  private composer(): ComposerHub {
+    if (this.composerHub === undefined) {
+      const hub = new ComposerHub({
+        chat: this.deps.chat,
+        transcripts: this.deps.transcripts,
+        registry: this.deps.registry,
+        dataDir: this.deps.workbenchDataDir,
+        logger: this.deps.logger,
+      });
+      hub.subscribe((message) => {
+        if (this.view !== undefined) {
+          void this.view.webview.postMessage(message);
+        }
+        for (const panel of this.sessionPanels.values()) {
+          void panel.webview.postMessage(message);
+        }
+      });
+      this.composerHub = hub;
+    }
+    return this.composerHub;
+  }
+
+  /** The host-owned queue entry every chat controller in this window shares. */
+  private composerServices(): { composer: ComposerHub } {
+    return { composer: this.composer() };
+  }
 
   /**
    * Routes a webview message to its controller, after pruning any session tabs
@@ -350,6 +392,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      ...this.composerServices(),
       ...this.mcpWatchOption(),
     };
 
@@ -556,6 +599,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      ...this.composerServices(),
       ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
@@ -698,6 +742,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      ...this.composerServices(),
       ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
@@ -763,6 +808,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
     const services: HostSessionServices = {
       registry: this.deps.registry,
       chat: this.deps.chat,
+      ...this.composerServices(),
     };
     const controller = new HostSessionController({
       services,

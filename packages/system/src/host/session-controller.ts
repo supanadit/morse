@@ -81,8 +81,9 @@ export interface HostSessionServices {
    */
   mcpWatch?: McpWatch;
   /**
-   * The host-owned composer queue and draft relay. Optional: a host with one
-   * frontend (VS Code) leaves it out and the frontend keeps its own queue.
+   * The host-owned composer queue and draft relay. Both hosts provide it: the
+   * queue (follow-ups and scheduled compactions alike) lives in the host and
+   * is persisted there, never in a webview, so a reload cannot lose it.
    */
   composer?: ComposerHub;
   /**
