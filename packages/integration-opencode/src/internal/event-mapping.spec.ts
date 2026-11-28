@@ -184,6 +184,16 @@ function mapAll(events: readonly OpenCodeEvent[]): {
   return { events: mapped, states };
 }
 
+describe('OpenCodeEventMapper forms', () => {
+  it('ignores a form created without fields instead of crashing the host', () => {
+    const mapper = new OpenCodeEventMapper();
+    const mapped = mapper.map(
+      event('form.created', { form: { id: 'f1', title: 'Choose', metadata: {} } }),
+    );
+    expect(mapped.events).toEqual([]);
+  });
+});
+
 describe('OpenCodeEventMapper', () => {
   it('turns a recorded text turn into a run with thinking, text and usage', () => {
     const { events, states } = mapAll(TEXT_TURN);

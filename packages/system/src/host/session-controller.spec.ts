@@ -928,10 +928,10 @@ describe('HostSessionController scheduled compaction', () => {
     };
   }
 
-  /** The scheduled compaction runs off the dispatch, so let its microtasks land. */
+  /** The schedule is a composer-queue item, so the controller has no timer of its own. */
   const flushed = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('arms instead of compacting while the run is in flight, then compacts at the settle', async () => {
+  it('treats a scheduled compact command as an immediate compact — the queue owns scheduling', async () => {
     const h = await scheduledHost();
     h.messages.length = 0;
 
@@ -939,81 +939,15 @@ describe('HostSessionController scheduled compaction', () => {
       type: 'session/compact',
       payload: { schedule: true, sessionKey: 'sess-1', instructions: 'keep the schema' },
     });
-
-    // Nothing was asked of pi: the run (and the follow-ups behind it) is still
-    // going, and aborting it is exactly what the schedule exists to avoid.
-    expect(h.compacted).toEqual([]);
-    const notices = h.messages.filter(
-      (message): message is Extract<HostToClientMessage, { type: 'notice' }> =>
-        message.type === 'notice',
-    );
-    expect(notices.at(-1)?.payload.text).toContain('scheduled');
-
-    h.streaming(false);
-    h.settle();
     await flushed();
 
-    // The conversation is quiet, and it carried the instructions it was asked with.
+    expect(h.compacted).toEqual(['keep the schema']);
+    h.settle();
+    await flushed();
+    // No second, uncancellable schedule fires later.
     expect(h.compacted).toEqual(['keep the schema']);
   });
 
-  it('compacts at once when the conversation had already gone quiet', async () => {
-    const h = await scheduledHost();
-    h.streaming(false);
-
-    await h.host.handleClientMessage({
-      type: 'session/compact',
-      payload: { schedule: true, sessionKey: 'sess-1' },
-    });
-    await flushed();
-
-    // The run ended while the question was up: no settle is coming, so a schedule
-    // would wait forever. It falls back to the compaction the reader asked for.
-    expect(h.compacted).toEqual([undefined]);
-  });
-
-  it('waits for the next settle while the host still sees the session working', async () => {
-    const h = await scheduledHost();
-
-    await h.host.handleClientMessage({
-      type: 'session/compact',
-      payload: { schedule: true, sessionKey: 'sess-1' },
-    });
-
-    // A run-end that arrives while the state still says "working" is not this
-    // conversation's rest; compacting then would abort whatever is running.
-    h.settle();
-    await flushed();
-    expect(h.compacted).toEqual([]);
-
-    h.streaming(false);
-    h.settle();
-    await flushed();
-    expect(h.compacted).toEqual([undefined]);
-  });
-
-  it('drops the schedule when the session closes — a reopened one inherits nothing', async () => {
-    const h = await scheduledHost();
-
-    await h.host.handleClientMessage({
-      type: 'session/compact',
-      payload: { schedule: true, sessionKey: 'sess-1' },
-    });
-    await h.host.handleClientMessage({
-      type: 'session/close',
-      payload: { sessionId: 'sess-1' },
-    });
-    await h.host.handleClientMessage({
-      type: 'session/activate',
-      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
-    });
-
-    h.streaming(false);
-    h.settle();
-    await flushed();
-
-    expect(h.compacted).toEqual([]);
-  });
 });
 
 describe('HostSessionController seeding', () => {

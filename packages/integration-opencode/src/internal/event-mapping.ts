@@ -269,7 +269,10 @@ export class OpenCodeEventMapper {
 
       case 'form.created': {
         const form = asRecord(data['form']);
-        if (form === undefined) {
+        // An OpenCode build can send a form shell with no `fields` array. There
+        // is nothing a reader could answer, and mapping it crashed the host;
+        // treat it as no interaction rather than a dialog nobody can fill.
+        if (form === undefined || !Array.isArray(form['fields'])) {
           return { events: [] };
         }
         return {

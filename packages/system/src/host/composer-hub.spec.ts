@@ -221,6 +221,31 @@ describe('ComposerHub', () => {
     expect(test.prompt).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels a queued compaction exactly like a queued message', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    test.hub.handle({
+      sessionId: 's1',
+      action: 'enqueue',
+      item: { ...input('ignored'), text: 'Compact context', compaction: {} },
+    });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('keep me') });
+    const id = test.stateOf('s1')?.queue.find((item) => item.compaction !== undefined)?.id;
+    expect(id).toBeDefined();
+
+    test.hub.handle({ sessionId: 's1', action: 'remove', itemId: id! });
+    expect(test.stateOf('s1')?.queue.map((item) => item.text)).toEqual(['keep me']);
+
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+
+    expect(test.compact).not.toHaveBeenCalled();
+    expect(test.prompt).toHaveBeenCalledWith('keep me', 'new', [], [], 's1');
+  });
+
   it('keeps a cold session\u2019s queue until it opens, then drains it', async () => {
     const test = setup();
     dir = test.dataDir;
