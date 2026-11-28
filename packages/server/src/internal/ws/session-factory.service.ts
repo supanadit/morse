@@ -110,7 +110,14 @@ import {
 import { readGitRepos } from '../workspace/git-repos.js';
 import { listProjectDirectory, workspaceFiles } from '../workspace/workspace-index.js';
 import { searchWorkspace } from '../workspace/workspace-search.js';
-import { readWorkbench, saveWorkbench, readDrafts, saveDrafts } from '@morse/system';
+import {
+  readWorkbench,
+  saveWorkbench,
+  readDrafts,
+  saveDrafts,
+  readUnread,
+  saveUnread,
+} from '@morse/system';
 import { ServerProjectPolicy } from '../projects/project-policy.js';
 import { ServerTerminalBackend } from '../terminal/terminal.service.js';
 import { canSelfUpdate, performSelfUpdate } from '../self-update/self-update.js';
@@ -861,6 +868,14 @@ export class MorseSessionFactory {
       }
       case 'saveDrafts': {
         return { ok: saveDrafts(this.dataDirFor(user?.id), args) };
+      }
+      case 'readUnread': {
+        // Host-scoped like the layout (per user once `multiuser` is on), so a
+        // mark read on one device is already read on the next.
+        return readUnread(this.dataDirFor(user?.id)) ?? null;
+      }
+      case 'saveUnread': {
+        return { ok: saveUnread(this.dataDirFor(user?.id), args) };
       }
       case 'listFiles': {
         const cwd = this.requireWritableCwd(context, policy);

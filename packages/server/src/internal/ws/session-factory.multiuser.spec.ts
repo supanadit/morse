@@ -209,6 +209,47 @@ describe('MorseSessionFactory multi-user bundles', () => {
     }
   });
 
+  it('keeps each login\'s unread marks in its own host file', async () => {
+    const ask = async (
+      controller: ReturnType<typeof factory.createFor>,
+      messages: HostToClientMessage[],
+      command: 'saveUnread' | 'readUnread',
+      args?: Record<string, unknown>,
+    ) => {
+      const requestId = `${command}-${messages.length}`;
+      await controller.handleClientMessage({
+        type: 'host/command',
+        payload: { requestId, command, args },
+      });
+      return (messages.at(-1) as { payload: { ok?: boolean; data?: unknown } }).payload;
+    };
+
+    const adminMessages: HostToClientMessage[] = [];
+    const forAdmin = factory.createFor((message) => adminMessages.push(message), {
+      user: userOf(admin.id, 'admin', 'adit'),
+    });
+    const saved = await ask(forAdmin, adminMessages, 'saveUnread', {
+      version: 1,
+      data: { sessions: { ids: ['admin-only'] }, bots: { ids: [] } },
+    });
+    expect(saved.ok).toBe(true);
+
+    const bobMessages: HostToClientMessage[] = [];
+    const forBob = factory.createFor((message) => bobMessages.push(message), {
+      user: userOf(bob.id, 'regular', 'bob'),
+    });
+    const bobRead = await ask(forBob, bobMessages, 'readUnread');
+    expect(bobRead.data).toBeNull();
+
+    const adminRead = await ask(forAdmin, adminMessages, 'readUnread');
+    expect(adminRead.data).toEqual({
+      version: 1,
+      data: { sessions: { ids: ['admin-only'] }, bots: { ids: [] } },
+    });
+    await forAdmin.dispose().catch(() => undefined);
+    await forBob.dispose().catch(() => undefined);
+  });
+
   it('lets admins list users and refuses regulars at the command', async () => {
     const adminMessages: HostToClientMessage[] = [];
     const forAdmin = factory.createFor((message) => adminMessages.push(message), {

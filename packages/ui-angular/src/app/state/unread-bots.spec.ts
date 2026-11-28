@@ -55,6 +55,66 @@ describe('UnreadBots', () => {
     expect(unread.count()).toBe(0);
   });
 
+  it('keeps a room read after a refresh when its transcript did not grow', () => {
+    const now = Date.now();
+    localStorage.clear();
+    localStorage.setItem('morse.unread2-bots-seen:single', JSON.stringify({ c1: 100 }));
+    localStorage.setItem('morse.unread2-bots-alive:single', JSON.stringify(now));
+    // The reader opened the room before the refresh: its transcript length was
+    // recorded with the cursor and must survive a reload of the page.
+    localStorage.setItem('morse.unread2-bots-lengths:single', JSON.stringify({ c1: 2 }));
+    const roster = signal({ conversations: [{ id: 'c1', updatedAt: 100 }] });
+    const transcripts = signal<Record<string, readonly unknown[]>>({ c1: [{}, {}] });
+    const activeId = signal<string | null>(null);
+    const user = signal(null);
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            user: user as Signal<null>,
+            bot: {
+              roster: roster as Signal<{ conversations: { id: string; updatedAt: number }[] }>,
+              transcripts: transcripts as Signal<Record<string, readonly unknown[]>>,
+              activeId: activeId as Signal<string | null>,
+            },
+          },
+        },
+      ],
+    });
+    const unread = TestBed.inject(UnreadBots);
+    TestBed.tick();
+    expect(unread.has('c1')).toBe(false);
+  });
+
+  it('still marks a read room whose transcript grew while away', () => {
+    localStorage.clear();
+    localStorage.setItem('morse.unread2-bots-seen:single', JSON.stringify({ c1: 100 }));
+    localStorage.setItem('morse.unread2-bots-lengths:single', JSON.stringify({ c1: 2 }));
+    const roster = signal({ conversations: [{ id: 'c1', updatedAt: 100 }] });
+    const transcripts = signal<Record<string, readonly unknown[]>>({ c1: [{}, {}, {}] });
+    const activeId = signal<string | null>(null);
+    const user = signal(null);
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: MorseService,
+          useValue: {
+            user: user as Signal<null>,
+            bot: {
+              roster: roster as Signal<{ conversations: { id: string; updatedAt: number }[] }>,
+              transcripts: transcripts as Signal<Record<string, readonly unknown[]>>,
+              activeId: activeId as Signal<string | null>,
+            },
+          },
+        },
+      ],
+    });
+    const unread = TestBed.inject(UnreadBots);
+    TestBed.tick();
+    expect(unread.has('c1')).toBe(true);
+  });
+
   it('marks the open room while in code mode, and not while watching it', () => {
     function botSetup(mode: 'code' | 'bot') {
       localStorage.clear();

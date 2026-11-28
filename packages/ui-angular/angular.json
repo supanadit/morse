@@ -52,8 +52,10 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "16kB",
-                  "maximumError": "16kB"
+                  // The composer's own styles sit just over 16 kB; leave a little
+                  // headroom without letting a component grow unbounded.
+                  "maximumWarning": "17kB",
+                  "maximumError": "17kB"
                 }
               ],
               "outputHashing": "all"

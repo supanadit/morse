@@ -15,6 +15,11 @@ function aliveKey(scope: string): string {
   return `morse.unread2-bots-alive:${scope}`;
 }
 
+/** Transcript lengths already read, so a reload cannot mistake old lines for new. */
+function lengthsKey(scope: string): string {
+  return `morse.unread2-bots-lengths:${scope}`;
+}
+
 function readAlive(key: string): number {
   try {
     const raw = globalThis.localStorage?.getItem(key);
@@ -52,6 +57,39 @@ function readSeen(key: string): Map<string, number> {
   } catch {
     return new Map();
   }
+}
+
+/** Same validation as a stored map, for state that arrived over the wire. */
+function asNumberMap(value: unknown): Map<string, number> {
+  if (typeof value !== 'object' || value === null) return new Map();
+  const map = new Map<string, number>();
+  for (const [id, at] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof at === 'number') map.set(id, at);
+  }
+  return map;
+}
+
+function readLengths(key: string): Map<string, number> {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    const parsed: unknown = raw === null ? {} : JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return new Map();
+    const map = new Map<string, number>();
+    for (const [id, len] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof len === 'number') map.set(id, len);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+/** The whole read state, as the host stores it for every device. */
+export interface BotUnreadData {
+  ids: string[];
+  seen: Record<string, number>;
+  lengths: Record<string, number>;
+  alive: number;
 }
 
 interface ConversationRow {
@@ -133,6 +171,26 @@ export class UnreadBots {
 
   has(id: string): boolean {
     return this.idsSignal().has(id);
+  }
+
+  snapshot(): BotUnreadData {
+    return {
+      ids: [...this.idsSignal()],
+      seen: Object.fromEntries(this.seen),
+      lengths: Object.fromEntries(this.lengths),
+      alive: this.alive,
+    };
+  }
+
+  /** Adopts another device's read state; the local cache follows so tabs agree. */
+  restore(data: BotUnreadData): void {
+    this.idsSignal.set(new Set(Array.isArray(data.ids) ? data.ids.filter((id) => typeof id === 'string') : []));
+    this.seen = asNumberMap(data.seen);
+    this.lengths = asNumberMap(data.lengths);
+    this.alive = typeof data.alive === 'number' ? data.alive : 0;
+    this.returning = this.seen.size > 0;
+    this.storeIds();
+    this.storeSeen();
   }
 
   /** Marks background rooms unread; the reconciler is the real caller. */
@@ -283,6 +341,7 @@ export class UnreadBots {
     if (scope === this.scope) return;
     this.scope = scope;
     this.seen = readSeen(seenKey(scope));
+    this.lengths = readLengths(lengthsKey(scope));
     this.idsSignal.set(readIds(idsKey(scope)));
     this.alive = readAlive(aliveKey(scope));
     // Cursors mean a previous reconcile ran here; bare ids alone are live
@@ -292,6 +351,7 @@ export class UnreadBots {
 
   private reload(): void {
     this.seen = readSeen(seenKey(this.scope));
+    this.lengths = readLengths(lengthsKey(this.scope));
     this.idsSignal.set(readIds(idsKey(this.scope)));
     this.alive = readAlive(aliveKey(this.scope));
     this.returning = this.seen.size > 0;
@@ -309,8 +369,10 @@ export class UnreadBots {
     try {
       const entries = [...this.seen];
       const kept = entries.slice(Math.max(0, entries.length - 2000));
+      const lengths = [...this.lengths].slice(Math.max(0, this.lengths.size - 2000));
       globalThis.localStorage?.setItem(seenKey(this.scope), JSON.stringify(Object.fromEntries(kept)));
       globalThis.localStorage?.setItem(aliveKey(this.scope), JSON.stringify(this.alive));
+      globalThis.localStorage?.setItem(lengthsKey(this.scope), JSON.stringify(Object.fromEntries(lengths)));
     } catch {
       // As above.
     }

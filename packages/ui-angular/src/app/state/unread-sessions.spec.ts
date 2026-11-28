@@ -9,10 +9,12 @@ interface Row {
   id: string;
   title: string;
   updatedAt: number;
+  messageCount?: number;
 }
 
 function setup(opts: {
   storedSeen?: Record<string, number>;
+  storedCounts?: Record<string, number>;
   storedAlive?: number;
   sessions?: Row[];
   active?: string;
@@ -24,6 +26,9 @@ function setup(opts: {
   const scope = opts.user ?? 'single';
   if (opts.storedSeen !== undefined) {
     localStorage.setItem(`morse.unread2-finished-seen:${scope}`, JSON.stringify(opts.storedSeen));
+  }
+  if (opts.storedCounts !== undefined) {
+    localStorage.setItem(`morse.unread2-finished-counts:${scope}`, JSON.stringify(opts.storedCounts));
   }
   if (opts.storedAlive !== undefined) {
     localStorage.setItem(`morse.unread2-alive:${scope}`, JSON.stringify(opts.storedAlive));
@@ -74,6 +79,24 @@ describe('UnreadSessions', () => {
       ],
     });
     expect(unread.ids().size).toBe(0);
+  });
+
+  it('keeps a session read when only its title or timestamp changed', () => {
+    const { unread } = setup({
+      storedSeen: { a: 100 },
+      storedCounts: { a: 5 },
+      sessions: [{ id: 'a', title: 'Renamed', updatedAt: 200, messageCount: 5 }],
+    });
+    expect(unread.has('a')).toBe(false);
+  });
+
+  it('still marks a session that gained messages', () => {
+    const { unread } = setup({
+      storedSeen: { a: 100 },
+      storedCounts: { a: 5 },
+      sessions: [{ id: 'a', title: 'A', updatedAt: 200, messageCount: 6 }],
+    });
+    expect(unread.has('a')).toBe(true);
   });
 
   it('marks sessions that moved while the browser was closed', () => {

@@ -2,7 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readDrafts, readWorkbench, saveDrafts, saveWorkbench } from './workbench-store.js';
+import {
+  readDrafts,
+  readUnread,
+  readWorkbench,
+  saveDrafts,
+  saveUnread,
+  saveWorkbench,
+} from './workbench-store.js';
 
 /**
  * The layout store is what makes a reopened window land on the session the reader
@@ -33,9 +40,19 @@ describe('workbench store', () => {
     expect(readDrafts(dir)).toEqual(drafts);
   });
 
+  it('round-trips unread marks in their own file', () => {
+    const marks = { version: 1, data: { sessions: { ids: ['s1'] }, bots: { ids: ['c1'] } } };
+
+    expect(saveUnread(dir, marks)).toBe(true);
+    expect(readUnread(dir)).toEqual(marks);
+    // Marks are not part of the layout a reopened window restores.
+    expect(readWorkbench(dir)).toBeUndefined();
+  });
+
   it('reads a missing or unreadable file as nothing to restore', () => {
     expect(readWorkbench(dir)).toBeUndefined();
     expect(readDrafts(dir)).toBeUndefined();
+    expect(readUnread(dir)).toBeUndefined();
   });
 
   it('drops an envelope that is not a versioned { version, data } object', () => {

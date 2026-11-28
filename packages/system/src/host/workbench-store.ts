@@ -24,6 +24,13 @@ const COMPOSER_FILE = 'composer.json';
  * client. Tiny: one small card per draft tab.
  */
 const DRAFT_CARDS_FILE = 'draft-cards.json';
+/**
+ * Read marks for sessions and bot rooms, shared by every device signed into the
+ * same host: ids plus the cursors that say how far the reader got. Smaller than a
+ * layout's worst case, but rewritten on every read, so it gets its own bounded
+ * file.
+ */
+const UNREAD_FILE = 'unread.json';
 
 /**
  * A layout is a handful of tab names and shell ids, so anything past a quarter
@@ -37,6 +44,8 @@ const LAYOUT_MAX_BYTES = 256 * 1024;
  * is not writing drafts, and an unbounded file would eventually fail to parse.
  */
 const DRAFTS_MAX_BYTES = 32 * 1024 * 1024;
+/** Unread marks are a few thousand ids and cursors, never a transcript. */
+const UNREAD_MAX_BYTES = 1024 * 1024;
 
 /**
  * A host's persisted shell state under its own data directory: the layout the
@@ -95,6 +104,16 @@ export function readDraftCards(dataDir: string): WorkbenchSnapshot | undefined {
 /** Writes the draft cards back, with the same atomic write and envelope guard. */
 export function saveDraftCards(dataDir: string, snapshot: unknown): boolean {
   return saveSlot(dataDir, DRAFT_CARDS_FILE, snapshot, LAYOUT_MAX_BYTES);
+}
+
+/** The unread marks the reader last shared with this host. */
+export function readUnread(dataDir: string): WorkbenchSnapshot | undefined {
+  return readSlot(join(dataDir, UNREAD_FILE), UNREAD_MAX_BYTES);
+}
+
+/** Writes unread marks back so the next device starts from the same read state. */
+export function saveUnread(dataDir: string, snapshot: unknown): boolean {
+  return saveSlot(dataDir, UNREAD_FILE, snapshot, UNREAD_MAX_BYTES);
 }
 
 function readSlot(path: string, maxBytes: number): WorkbenchSnapshot | undefined {

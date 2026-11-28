@@ -27,8 +27,10 @@ import {
   HostSessionController,
   readDrafts,
   readWorkbench,
+  readUnread,
   saveDrafts,
   saveWorkbench,
+  saveUnread,
   type HostSessionServices,
   type ProjectPolicy,
   type SessionTranscriptStore,
@@ -1051,6 +1053,11 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         return readDrafts(this.deps.workbenchDataDir) ?? null;
       case 'saveDrafts':
         return { ok: saveDrafts(this.deps.workbenchDataDir, args) };
+      case 'readUnread':
+        // Same envelope as the browser host, kept in this window's storage.
+        return readUnread(this.deps.workbenchDataDir) ?? null;
+      case 'saveUnread':
+        return { ok: saveUnread(this.deps.workbenchDataDir, args) };
       case 'showOutput':
         this.deps.logger.show();
         return;

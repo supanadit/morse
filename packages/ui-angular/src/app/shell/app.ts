@@ -58,6 +58,7 @@ import { RestoreState } from '../state/restore-state';
 import { ShellState, type LeftPane } from '../state/shell-state';
 import { WorkspaceTabs, type WorkspaceTab } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
+import { UnreadSync } from '../services/unread-sync';
 import { QueueDrain } from '../services/queue-drain';
 import { ComposerSync } from '../services/composer-sync';
 import { EnterDirective } from '../ui/enter.directive';
@@ -734,6 +735,9 @@ export class App {
     // starts watching for changes worth saving; the VS Code host advertises no
     // such capability and the service stays inert there.
     inject(WorkbenchPersistence);
+    // Unread marks are shared through the host, so a room read here is already
+    // read when the same login opens Morse on another device.
+    inject(UnreadSync);
     // The shell owns the mode; the tab store only needs to know which half of
     // its one strip to show. Keeping this as an effect also covers a mode set
     // straight on the signal (tests, a restored preference) without a second

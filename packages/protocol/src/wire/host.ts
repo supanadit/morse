@@ -80,6 +80,13 @@ export type SharedHostCommand =
   | 'readDrafts'
   | 'saveDrafts'
   /**
+   * The reader's unread marks (ids and read cursors for sessions and bot rooms),
+   * kept by the host so a mark made on one device is already read on another.
+   * The frontend owns the inner shape, as with the layout and drafts.
+   */
+  | 'readUnread'
+  | 'saveUnread'
+  /**
    * pi's MCP servers for the viewing session's directory: their connection
    * state, tools and configuration source (`pi mcp list --json`).
    */

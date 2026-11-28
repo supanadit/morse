@@ -15,6 +15,11 @@ function aliveKey(scope: string): string {
   return `morse.unread2-alive:${scope}`;
 }
 
+/** Message counts already read, so a title/timestamp refresh is not news. */
+function countsKey(scope: string): string {
+  return `morse.unread2-finished-counts:${scope}`;
+}
+
 function readAlive(key: string): number {
   try {
     const raw = globalThis.localStorage?.getItem(key);
@@ -54,6 +59,31 @@ function readSeen(key: string): Map<string, number> {
   }
 }
 
+/** Same validation as a stored map, for state that arrived over the wire. */
+export function asNumberMap(value: unknown): Map<string, number> {
+  if (typeof value !== 'object' || value === null) return new Map();
+  const map = new Map<string, number>();
+  for (const [id, at] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof at === 'number') map.set(id, at);
+  }
+  return map;
+}
+
+function readCounts(key: string): Map<string, number> {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    const parsed: unknown = raw === null ? {} : JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return new Map();
+    const map = new Map<string, number>();
+    for (const [id, count] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof count === 'number') map.set(id, count);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
 /**
  * Sessions that finished while the reader was elsewhere — including while the
  * browser was closed. Two paths feed the same set:
@@ -73,6 +103,14 @@ function readSeen(key: string): Map<string, number> {
  * becomes another's unread), and ids for sessions the catalog no longer holds
  * are dropped once the catalog is fully loaded.
  */
+/** The whole read state, as the host stores it for every device. */
+export interface SessionUnreadData {
+  ids: string[];
+  seen: Record<string, number>;
+  counts: Record<string, number>;
+  alive: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class UnreadSessions {
   private readonly morse = inject(MorseService);
@@ -81,6 +119,8 @@ export class UnreadSessions {
   readonly ids = this.idsSignal.asReadonly();
   /** Last `updatedAt` observed per session; growth outside the active one is news. */
   private seen = new Map<string, number>();
+  /** Message count already read per session; only more messages are news. */
+  private counts = new Map<string, number>();
   /** When this login was last alive; new rows are newer than this (give or take skew). */
   private alive = 0;
   /** Scopes whose initial handling is done (seeded or caught up). */
@@ -120,6 +160,26 @@ export class UnreadSessions {
     return this.idsSignal().has(id);
   }
 
+  snapshot(): SessionUnreadData {
+    return {
+      ids: [...this.idsSignal()],
+      seen: Object.fromEntries(this.seen),
+      counts: Object.fromEntries(this.counts),
+      alive: this.alive,
+    };
+  }
+
+  /** Adopts another device's read state; the local cache follows so tabs agree. */
+  restore(data: SessionUnreadData): void {
+    this.idsSignal.set(new Set(Array.isArray(data.ids) ? data.ids.filter((id) => typeof id === 'string') : []));
+    this.seen = asNumberMap(data.seen);
+    this.counts = asNumberMap(data.counts);
+    this.alive = typeof data.alive === 'number' ? data.alive : 0;
+    this.returning = this.seen.size > 0;
+    this.storeIds();
+    this.storeSeen();
+  }
+
   /** Marks live finishes; the reconciler owns everything list-driven. */
   mark(ids: readonly string[]): void {
     if (ids.length === 0) return;
@@ -140,8 +200,11 @@ export class UnreadSessions {
   /** Opens one session: its dot goes, and its cursor catches up so it stays gone. */
   clear(id: string): void {
     this.ensureScope(this.scopeId());
-    const at = this.sessions().find((session) => session.id === id)?.updatedAt;
-    if (at !== undefined) this.seen.set(id, at);
+    const row = this.sessions().find((session) => session.id === id);
+    if (row !== undefined) {
+      this.seen.set(id, row.updatedAt);
+      if (row.messageCount !== undefined) this.counts.set(id, row.messageCount);
+    }
     if (!this.idsSignal().has(id)) {
       this.storeSeen();
       return;
@@ -156,7 +219,7 @@ export class UnreadSessions {
   }
 
   private reconcile(
-    sessions: { id: string; updatedAt: number }[],
+    sessions: { id: string; updatedAt: number; messageCount?: number }[],
     active: string | undefined,
     streaming: ReadonlySet<string>,
     scope: string,
@@ -168,7 +231,10 @@ export class UnreadSessions {
         // Wait for its own list — seeding (or marking) an empty or another
         // login's catalog would leak it into this login's dots.
         if (sessions.length === 0) return;
-        for (const session of sessions) this.seen.set(session.id, session.updatedAt);
+        for (const session of sessions) {
+          this.seen.set(session.id, session.updatedAt);
+          if (session.messageCount !== undefined) this.counts.set(session.id, session.messageCount);
+        }
         this.alive = Date.now();
         this.ready.add(scope);
         this.storeSeen();
@@ -187,6 +253,7 @@ export class UnreadSessions {
       listed.add(session.id);
       if (session.id === active) {
         this.seen.set(session.id, session.updatedAt);
+        if (session.messageCount !== undefined) this.counts.set(session.id, session.messageCount);
         if (unread.delete(session.id)) changed = true;
         continue;
       }
@@ -196,6 +263,7 @@ export class UnreadSessions {
         // sessions on a page the catalog just loaded (not news). The birth
         // date tells them apart — only "now and future" marks.
         this.seen.set(session.id, session.updatedAt);
+        if (session.messageCount !== undefined) this.counts.set(session.id, session.messageCount);
         if (
           session.updatedAt > horizon &&
           !streaming.has(session.id) &&
@@ -206,12 +274,21 @@ export class UnreadSessions {
         }
         continue;
       }
-      if (session.updatedAt <= at) continue;
+      const read = this.counts.get(session.id);
+      const count = session.messageCount;
+      // A title/timestamp refresh is not a message. Counts, where the host
+      // reports them, decide news; a row seen before counts existed adopts them.
+      const grew =
+        count === undefined
+          ? session.updatedAt > at
+          : read === undefined
+            ? false
+            : count > read;
+      if (count !== undefined) this.counts.set(session.id, count);
       this.seen.set(session.id, session.updatedAt);
-      if (!streaming.has(session.id) && !unread.has(session.id)) {
-        unread.add(session.id);
-        changed = true;
-      }
+      if (!grew || streaming.has(session.id) || unread.has(session.id)) continue;
+      unread.add(session.id);
+      changed = true;
     }
     // Fully loaded and a dot names nothing in it: the session is gone
     // (deleted elsewhere), so the dot goes too instead of inflating the count.
@@ -238,6 +315,7 @@ export class UnreadSessions {
     if (scope === this.scope) return;
     this.scope = scope;
     this.seen = readSeen(seenKey(scope));
+    this.counts = readCounts(countsKey(scope));
     this.idsSignal.set(readIds(idsKey(scope)));
     this.alive = readAlive(aliveKey(scope));
     // Cursors mean a previous reconcile ran here; bare ids alone are live
@@ -247,6 +325,7 @@ export class UnreadSessions {
 
   private reload(): void {
     this.seen = readSeen(seenKey(this.scope));
+    this.counts = readCounts(countsKey(this.scope));
     this.idsSignal.set(readIds(idsKey(this.scope)));
     this.alive = readAlive(aliveKey(this.scope));
     this.returning = this.seen.size > 0;
@@ -266,8 +345,10 @@ export class UnreadSessions {
       // ever-growing map must not either — the oldest go first.
       const entries = [...this.seen];
       const kept = entries.slice(Math.max(0, entries.length - 2000));
+      const counts = [...this.counts].slice(Math.max(0, this.counts.size - 2000));
       globalThis.localStorage?.setItem(seenKey(this.scope), JSON.stringify(Object.fromEntries(kept)));
       globalThis.localStorage?.setItem(aliveKey(this.scope), JSON.stringify(this.alive));
+      globalThis.localStorage?.setItem(countsKey(this.scope), JSON.stringify(Object.fromEntries(counts)));
     } catch {
       // As above.
     }
@@ -326,9 +407,12 @@ export class UnreadSessions {
     }
   }
 
-  private sessions(): { id: string; updatedAt: number }[] {
+  private sessions(): { id: string; updatedAt: number; messageCount?: number }[] {
     try {
-      return (this.morse as { sessions?: () => { id: string; updatedAt: number }[] }).sessions?.() ?? [];
+      return (
+        (this.morse as { sessions?: () => { id: string; updatedAt: number; messageCount?: number }[] }).sessions?.() ??
+        []
+      );
     } catch {
       return [];
     }
