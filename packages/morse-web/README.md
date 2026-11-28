@@ -102,6 +102,7 @@ MORSE_PORT             Default port
 MORSE_HOST             Default bind address
 MORSE_AUTH_PASSWORD    Password required to open the UI (login page); empty = no gate
 MORSE_AUTH_USERNAME    Optional user name required with MORSE_AUTH_PASSWORD
+MORSE_AUTH_SECRET      Optional pepper for the login cookie; rotate + restart to force re-login
 MORSE_WORKSPACE        Workspace the agent runs in
 MORSE_PROJECTS         Roots the agent may open
 MORSE_HOT_SESSIONS     How many pi processes stay alive (default: 4)

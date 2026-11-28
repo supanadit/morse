@@ -61,6 +61,7 @@ const SINGLE_AUTH_MAX_AGE_S = 30 * 24 * 60 * 60;
 export function basicAuthMiddleware(
   password: string | undefined,
   username: string | undefined,
+  secret: string | undefined = undefined,
 ) {
   return (request: AuthRequest, response: AuthResponse, next: Next): void => {
     const path = request.path;
@@ -70,7 +71,7 @@ export function basicAuthMiddleware(
     }
     if (path === SINGLE_LOGIN_PATH) {
       if (request.method === 'POST') {
-        void singleLogin(request, response, password, username);
+        void singleLogin(request, response, password, username, secret);
         return;
       }
       response.status(404).end();
@@ -100,7 +101,7 @@ export function basicAuthMiddleware(
       next();
       return;
     }
-    if (matchesBasic(request.headers.authorization, password, username) || hasSingleAuth(request.headers, password)) {
+    if (matchesBasic(request.headers.authorization, password, username) || hasSingleAuth(request.headers, password, secret)) {
       next();
       return;
     }
@@ -158,12 +159,16 @@ export function isAuthorized(
   request: { headers: Record<string, unknown> },
   password: string,
   username?: string,
+  secret?: string,
 ): boolean {
-  return matchesBasic(request.headers.authorization, password, username) || hasSingleAuth(request.headers, password);
+  return matchesBasic(request.headers.authorization, password, username) || hasSingleAuth(request.headers, password, secret);
 }
 
-function singleAuthToken(password: string): string {
-  return createHash('sha256').update(`morse-single:${password}`).digest('hex');
+function singleAuthToken(password: string, secret?: string): string {
+  // The password alone mints the cookie by default; a set secret peppers it,
+  // so rotating the secret (or the password) invalidates every cookie.
+  const pepper = secret === undefined ? password : `${secret}:${password}`;
+  return createHash('sha256').update(`morse-single:${pepper}`).digest('hex');
 }
 
 function cookieOf(header: unknown, name: string): string | undefined {
@@ -181,9 +186,9 @@ function cookieOf(header: unknown, name: string): string | undefined {
 }
 
 /** True when the request carries the cookie minted by a successful login. */
-export function hasSingleAuth(headers: Record<string, unknown>, password: string): boolean {
+export function hasSingleAuth(headers: Record<string, unknown>, password: string, secret?: string): boolean {
   const token = cookieOf(headers['cookie'] ?? headers['Cookie'], SINGLE_AUTH_COOKIE);
-  return token !== undefined && safeEqual(token, singleAuthToken(password));
+  return token !== undefined && safeEqual(token, singleAuthToken(password, secret));
 }
 
 function singleAuthCookie(token: string): string {
@@ -233,6 +238,7 @@ async function singleLogin(
   response: AuthResponse,
   password: string,
   username: string | undefined,
+  secret: string | undefined,
 ): Promise<void> {
   let body: unknown;
   try {
@@ -245,7 +251,7 @@ async function singleLogin(
   const passwordOk = typeof given['password'] === 'string' && safeEqual(given['password'], password);
   const userOk = username === undefined || (typeof given['username'] === 'string' && safeEqual(given['username'], username));
   if (passwordOk && userOk) {
-    response.set('Set-Cookie', singleAuthCookie(singleAuthToken(password)));
+    response.set('Set-Cookie', singleAuthCookie(singleAuthToken(password, secret)));
     json(response, 200, { ok: true });
     return;
   }

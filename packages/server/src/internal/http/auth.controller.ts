@@ -195,6 +195,7 @@ export class AuthController {
         { headers: request.headers as Record<string, unknown> },
         password,
         this.config.authUsername,
+        this.config.authSecret,
       );
       return {
         multiuser: false,

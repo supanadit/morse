@@ -94,7 +94,13 @@ export interface MorseServerConfig {
    */
   authUsername?: string;
   /**
-   * Per-user session isolation with login (`MORSE_MULTIUSER=1`, or
+   * Pepper for the single-user login cookie (`MORSE_AUTH_SECRET`). Undefined
+   * means the password alone mints it. Set it to a random string and rotate
+   * it (or the password) plus a restart whenever every browser must log in
+   * again. Alone it does nothing: with no `authPassword` there is no gate.
+   */
+  authSecret?: string;
+  /**
    * `morse config set multiuser true`). Env wins; otherwise the CLI's
    * `<MORSE_HOME>/config.json`; default off (today's single-user behavior).
    * Off means the union of every user's rows with no gate; owner metadata is
@@ -202,6 +208,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MorseServerCon
     instance: env.MORSE_INSTANCE?.trim() || undefined,
     authPassword: env.MORSE_AUTH_PASSWORD?.trim() || undefined,
     authUsername: env.MORSE_AUTH_USERNAME?.trim() || undefined,
+    authSecret: env.MORSE_AUTH_SECRET?.trim() || undefined,
     oidc: readOidcEnv(env),
     oidcManagedByEnv: isOidcEnvManaged(env),
   };

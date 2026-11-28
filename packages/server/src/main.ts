@@ -80,7 +80,7 @@ async function bootstrap(): Promise<void> {
   // Multi-user hosts skip this gate: the login form (cookie + /api/auth) owns
   // identity there, and the static login page must load unauthenticated.
   if (!config.multiuser) {
-    app.use(basicAuthMiddleware(config.authPassword, config.authUsername));
+    app.use(basicAuthMiddleware(config.authPassword, config.authUsername, config.authSecret));
   }
   // Serves the built Angular frontend. No SPA fallback is registered, so
   // /api/* and /ws keep working.

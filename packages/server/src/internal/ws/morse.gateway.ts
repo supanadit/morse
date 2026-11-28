@@ -45,6 +45,7 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly config: {
       authPassword?: string;
       authUsername?: string;
+      authSecret?: string;
       multiuser: boolean;
     },
     @Inject(MORSE_DB) private readonly db: Knex | undefined,
@@ -72,7 +73,7 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // of retrying.
     if (this.config.authPassword !== undefined &&
         (request === undefined ||
-         !isAuthorized(request, this.config.authPassword, this.config.authUsername))) {
+         !isAuthorized(request, this.config.authPassword, this.config.authUsername, this.config.authSecret))) {
       client.close(LOGIN_REQUIRED_CLOSE_CODE, 'login required');
       return;
     }

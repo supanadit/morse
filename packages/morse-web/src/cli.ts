@@ -866,6 +866,7 @@ function printHelp(): void {
    MORSE_PROJECTS         Roots the agent may open
    MORSE_AUTH_PASSWORD    Password required to open the UI (login page); empty = no gate
    MORSE_AUTH_USERNAME    Optional user name required with MORSE_AUTH_PASSWORD
+   MORSE_AUTH_SECRET      Optional pepper for the login cookie; rotate + restart to force re-login
    MORSE_UPDATE_CHECK     Ask the registry whether a newer Morse is out (0 disables)
    MORSE_SELF_UPDATE      Allow the browser's update button to install and restart (1 enables)
    MORSE_MULTIUSER        Scope sessions per user with login (1 enables; default: 0)

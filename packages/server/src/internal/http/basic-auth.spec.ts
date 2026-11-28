@@ -125,6 +125,28 @@ describe('basicAuthMiddleware', () => {
     expect((res.set as unknown as jest.Mock).mock.calls.some(([name]) => name === 'Set-Cookie')).toBe(true);
   });
 
+  it('peppers the cookie with MORSE_AUTH_SECRET and honors rotation', async () => {
+    const login = async (secret?: string): Promise<string | undefined> => {
+      const req: Req = { headers: {}, path: '/api/auth/single-login', method: 'POST', body: { password: 'secret' } } as unknown as Req;
+      const res = { status: vi.fn().mockReturnThis(), set: vi.fn().mockReturnThis(), end: vi.fn() } as unknown as Res;
+      basicAuthMiddleware('secret', undefined, secret)(req as unknown as Request, res as unknown as Response, vi.fn());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(res.status).toHaveBeenCalledWith(200);
+      return (res.set as unknown as jest.Mock).mock.calls.find(([name]) => name === 'Set-Cookie')?.[1]?.split(';')[0] as string | undefined;
+    };
+    const plain = await login(undefined);
+    const peppered = await login('rotatable-pepper');
+    expect(plain).toBeDefined();
+    expect(peppered).toBeDefined();
+    expect(peppered).not.toBe(plain);
+    // Each cookie validates only under the secret that minted it.
+    expect(hasSingleAuth({ cookie: plain }, 'secret')).toBe(true);
+    expect(hasSingleAuth({ cookie: plain }, 'secret', 'rotatable-pepper')).toBe(false);
+    expect(hasSingleAuth({ cookie: peppered }, 'secret', 'rotatable-pepper')).toBe(true);
+    expect(hasSingleAuth({ cookie: peppered }, 'secret', 'new-pepper')).toBe(false);
+    expect(hasSingleAuth({ cookie: peppered }, 'secret')).toBe(false);
+  });
+
   it('rejects a wrong password with 401 JSON after a beat', async () => {
     const req: Req = { headers: {}, path: '/api/auth/single-login', method: 'POST', body: { password: 'nope' } } as unknown as Req;
     const res = { status: vi.fn().mockReturnThis(), set: vi.fn().mockReturnThis(), end: vi.fn() } as unknown as Res;
