@@ -34,6 +34,7 @@ import {
 } from '@morse/protocol';
 import { HostSessionController, type HostSessionServices } from './session-controller.js';
 import { DraftCardStore } from './draft-cards.js';
+import { ComposerHub } from './composer-hub.js';
 import { InteractionHub } from './interaction-hub.js';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 import type { SessionCatalog } from '../session/ports.js';
@@ -985,6 +986,141 @@ describe('HostSessionController scheduled compaction', () => {
     expect(h.compacted).toEqual(['keep the schema']);
   });
 
+});
+
+describe('HostSessionController model picks mid-run', () => {
+  interface Working {
+    host: HostSessionController;
+    messages: HostToClientMessage[];
+    /** The models / levels the engine itself was asked to switch to. */
+    engineModels: string[];
+    engineLevels: string[];
+    /** The last queue state the shared hub broadcast, as every device receives it. */
+    pending(): unknown;
+    streaming(value: boolean): void;
+  }
+
+  async function working(): Promise<Working> {
+    const messages: HostToClientMessage[] = [];
+    const engineModels: string[] = [];
+    const engineLevels: string[] = [];
+    const listeners: AgentEventListener[] = [];
+    const agentState: AgentSessionState = {
+      workspace: WORKSPACE,
+      thinkingLevel: 'off',
+      availableModels: [],
+      availableThinkingLevels: [],
+      availableCommands: [],
+      streaming: true,
+      sessionId: 'sess-1',
+    };
+    const gateway: AgentGateway = {
+      subscribe(listener) {
+        listeners.push(listener);
+        return () => {
+          const index = listeners.indexOf(listener);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        };
+      },
+      state: () => Promise.resolve({ ...agentState }),
+      history: () => Promise.resolve({ entries: [], hasOlder: false }),
+      prompt: () => Promise.resolve<PromptDisposition>('started'),
+      userMessages: () => Promise.resolve([]),
+      rewrite: () => Promise.resolve({ text: '', cancelled: true }),
+      clone: () => Promise.resolve({ cancelled: true }),
+      fork: () => Promise.resolve({ text: '', cancelled: true }),
+      abort: () => Promise.resolve(),
+      setModel: (model) => {
+        engineModels.push(model.id);
+        return Promise.resolve();
+      },
+      setThinkingLevel: (level) => {
+        engineLevels.push(level);
+        return Promise.resolve();
+      },
+      compact: () => Promise.resolve(),
+      respondToInteraction: () => Promise.resolve(),
+      dispose: () => Promise.resolve(),
+    };
+    const registry = new SessionRegistry({
+      factory: { create: () => Promise.resolve(gateway) },
+      catalog: { list: () => Promise.resolve([]) },
+      defaultWorkspace: WORKSPACE,
+      logger: silentLogger,
+    });
+    const transcripts = new SessionTranscriptStore();
+    const chat = new ChatService({ agent: registry, logger: silentLogger });
+    const composer = new ComposerHub({
+      chat,
+      transcripts,
+      registry,
+      dataDir: mkdtempSync(join(tmpdir(), 'morse-pick-')),
+      logger: silentLogger,
+    });
+    // The hub talks to clients through its own broadcast; listen as a socket would.
+    let lastPending: unknown;
+    composer.subscribe((message) => {
+      if (message.type === 'composer/state') {
+        lastPending = message.payload.pending;
+      }
+    });
+    const host = connect(registry, chat, transcripts, messages, undefined, undefined, undefined, composer);
+    await host.start();
+    await host.handleClientMessage({
+      type: 'session/activate',
+      payload: { sessionId: 'sess-1', cwd: WORKSPACE.cwd },
+    });
+    return {
+      host,
+      messages,
+      engineModels,
+      engineLevels,
+      pending: () => lastPending,
+      streaming: (value) => {
+        agentState.streaming = value;
+        for (const listener of [...listeners]) {
+          listener({ type: 'agent/state', at: Date.now(), state: { ...agentState } });
+        }
+      },
+    };
+  }
+
+  it('a model picked while a turn runs never reaches the engine: it waits as the next turn’s', async () => {
+    const h = await working();
+    h.messages.length = 0;
+
+    await h.host.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'zai', id: 'glm-5.4' },
+    });
+    await h.host.handleClientMessage({
+      type: 'thinking/set',
+      payload: { level: 'high' },
+    });
+
+    // The live turn is untouched on both counts.
+    expect(h.engineModels).toEqual([]);
+    expect(h.engineLevels).toEqual([]);
+    // The host holds both halves as one pick for the next turn.
+    expect(h.pending()).toEqual({
+      model: { provider: 'zai', id: 'glm-5.4', name: 'glm-5.4' },
+      thinking: 'high',
+    });
+  });
+
+  it('the same pick on an idle session applies at once, as before', async () => {
+    const h = await working();
+    h.streaming(false);
+
+    await h.host.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'zai', id: 'glm-5.4' },
+    });
+
+    expect(h.engineModels).toEqual(['glm-5.4']);
+  });
 });
 
 describe('HostSessionController seeding', () => {

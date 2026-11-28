@@ -156,6 +156,12 @@ export class ChatComposer {
   private readonly attachments = inject(AttachmentStore);
   private readonly drafts = inject(ComposerDrafts);
   private readonly queue = inject(QueuedPrompts);
+  /**
+   * The pick a running turn is holding for the next one: a model or thinking
+   * level chosen while the session works applies to the next turn, never the
+   * live one. The host owns it, so every device shows the same "next".
+   */
+  protected readonly pendingPick = computed(() => this.queue.pendingPick(this.tabs.composerKey()));
   private readonly workspace = inject(WorkspaceFiles);
   private readonly workspaceStore = inject(WorkspaceFilesStore);
   private readonly tabs = inject(WorkspaceTabs);
@@ -348,7 +354,14 @@ export class ChatComposer {
     return this.botAcceptsMedia('image');
   }
 
-  protected readonly thinkingLevel = computed(() => this.morse.state().thinkingLevel);
+  /**
+   * The thinking level the picker marks: a pick waiting for the running turn
+   * to end reads as selected, so choosing one mid-run visibly takes even though
+   * the live turn keeps its level.
+   */
+  protected readonly thinkingLevel = computed(
+    () => this.pendingPick()?.thinking ?? this.morse.state().thinkingLevel,
+  );
   protected readonly models = this.morse.availableModels;
   protected readonly levels = this.morse.availableThinkingLevels;
   /** True while the host re-reads the picked model's levels (see the picker). */
@@ -409,8 +422,9 @@ export class ChatComposer {
   );
   protected readonly showModePicker = computed(() => this.availableModes().length > 0);
   protected readonly loadingEngine = this.morse.loadingEngine;
+  /** The model the picker marks: a pending pick over the live one (see `thinkingLevel`). */
   protected readonly modelKey = computed(() => {
-    const model = this.morse.state().model;
+    const model = this.pendingPick()?.model ?? this.morse.state().model;
     return model ? `${model.provider}/${model.id}` : '';
   });
   protected readonly usageState = computed<{
@@ -479,6 +493,25 @@ export class ChatComposer {
    * never shows another session's messages.
    */
   protected readonly queuedMessages = computed(() => this.queue.forOwner(this.tabs.composerKey()));
+  /** The model the footer should name as coming next, when one is pending. */
+  protected readonly nextModelName = computed(() => {
+    const model = this.pendingPick()?.model;
+    return model === undefined ? '' : this.pickLabel(model);
+  });
+  /** A queued row's model: its own stamped pick, else — for the head — the pending one. */
+  protected queuedModel(item: QueuedPrompt): string {
+    const model =
+      item.pick?.model ??
+      (this.queuedMessages()[0]?.id === item.id ? this.pendingPick()?.model : undefined);
+    return model === undefined ? '' : this.pickLabel(model);
+  }
+
+  private pickLabel(model: { provider: string; id: string; name?: string }): string {
+    const known = this.morse.availableModels().find(
+      (option) => option.provider === model.provider && option.id === model.id,
+    );
+    return model.name ?? known?.name ?? model.id;
+  }
   /** Whether the queued follow-ups are unfolded; the header is the toggle. */
   protected readonly queueOpen = signal(true);
 

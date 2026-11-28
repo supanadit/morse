@@ -9,9 +9,11 @@ import { silentLogger } from '../logger.js';
 
 type Tagged = { sessionKey: string; event: AgentEvent };
 
-function setup() {
+function setup(existingDir?: string) {
   const prompt = vi.fn(async () => ({ accepted: true }));
   const compact = vi.fn(async () => undefined);
+  const setModel = vi.fn(async () => undefined);
+  const setThinkingLevel = vi.fn(async () => undefined);
   const userPrompt = vi.fn();
   const emitted: HostToClientMessage[] = [];
   const states = new Map<string, { streaming: boolean }>();
@@ -25,9 +27,9 @@ function setup() {
     },
     stateOf: (key: string) => states.get(key),
   };
-  const dataDir = mkdtempSync(join(tmpdir(), 'morse-composer-'));
+  const dataDir = existingDir ?? mkdtempSync(join(tmpdir(), 'morse-composer-'));
   const hub = new ComposerHub({
-    chat: { prompt, compact },
+    chat: { prompt, compact, setModel, setThinkingLevel },
     transcripts: { userPrompt },
     registry,
     dataDir,
@@ -39,7 +41,19 @@ function setup() {
   };
   const stateOf = (sessionKey: string): SharedComposerState | undefined =>
     hub.snapshot().states.find((state) => state.sessionId === sessionKey);
-  return { hub, prompt, compact, userPrompt, emitted, states, event, stateOf, dataDir };
+  return {
+    hub,
+    prompt,
+    compact,
+    setModel,
+    setThinkingLevel,
+    userPrompt,
+    emitted,
+    states,
+    event,
+    stateOf,
+    dataDir,
+  };
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -51,6 +65,253 @@ function runEnd(reason: 'settled' | 'aborted' | 'error'): AgentEvent {
 function input(text: string) {
   return { text, images: [], pins: [] };
 }
+
+describe('ComposerHub picks', () => {
+  let dir = '';
+  let hub: ComposerHub | undefined;
+
+  beforeEach(() => {
+    hub = undefined;
+  });
+
+  afterEach(() => {
+    if (dir.length > 0) {
+      rmSync(dir, { recursive: true, force: true });
+      dir = '';
+    }
+  });
+
+  it('holds a pick made mid-run and applies it to the next turn, not the live one', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const model = { provider: 'zai', id: 'glm-5.4', name: 'GLM-5.4' };
+
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model } });
+    // The running turn is untouched: nothing reached the engine.
+    expect(test.setModel).not.toHaveBeenCalled();
+    expect(test.stateOf('s1')?.pending).toEqual({ model });
+
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('after this') });
+    // The row is stamped with what it will run on, and is still only queued.
+    expect(test.stateOf('s1')?.queue[0]?.pick).toEqual({ model });
+    expect(test.setModel).not.toHaveBeenCalled();
+
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+
+    // Applied first, then sent: the next turn runs on the pick.
+    expect(test.setModel).toHaveBeenCalledWith(model, 's1');
+    expect(test.prompt).toHaveBeenCalledTimes(1);
+    expect(test.setModel.mock.invocationCallOrder[0]).toBeLessThan(
+      test.prompt.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    // Consumed: it was for that one turn.
+    expect(test.stateOf('s1')).toBeUndefined();
+  });
+
+  it('merges a model pick and a thinking pick into one next turn', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    test.hub.handle({
+      sessionId: 's1',
+      action: 'pick',
+      pick: { model: { provider: 'zai', id: 'glm-5.4' } },
+    });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { thinking: 'high' } });
+    expect(test.stateOf('s1')?.pending).toEqual({
+      model: { provider: 'zai', id: 'glm-5.4' },
+      thinking: 'high',
+    });
+
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('go') });
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+    expect(test.setThinkingLevel).toHaveBeenCalledWith('high', 's1');
+  });
+
+  it('runs each queued message on its own model, in order', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const a = { provider: 'zai', id: 'glm-5.4' };
+    const b = { provider: 'opencode-go', id: 'claude-opus-5' };
+
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model: a } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('first') });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model: b } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('second') });
+
+    const queue = test.stateOf('s1')?.queue ?? [];
+    expect(queue.map((item) => item.pick?.model?.id)).toEqual(['glm-5.4', 'claude-opus-5']);
+
+    // Two settles drain both, each preceded by its own model.
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+    test.event('s1', runEnd('settled'));
+    await settle();
+    expect(test.setModel.mock.calls.map((call) => call[0].id)).toEqual([
+      'glm-5.4',
+      'claude-opus-5',
+    ]);
+    expect(test.prompt.mock.calls.map((call) => call[0])).toEqual(['first', 'second']);
+  });
+
+  it('every message queued after a pick runs on it, and none on a model it did not advertise', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const model = { provider: 'zai', id: 'glm-5.4' };
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('first') });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('second') });
+    // Each row names the model it will fire on, before anything runs.
+    expect(test.stateOf('s1')?.queue.map((item) => item.pick?.model)).toEqual([model, model]);
+
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+    test.event('s1', runEnd('settled'));
+    await settle();
+
+    expect(test.prompt.mock.calls.map((call) => call[0])).toEqual(['first', 'second']);
+    // Every set is the advertised model; nothing else was ever applied.
+    expect(test.setModel.mock.calls.every((call) => call[0].id === 'glm-5.4')).toBe(true);
+  });
+
+  it('re-picking mid-queue gives the messages after the re-pick the new model', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const glm = { provider: 'zai', id: 'glm-5.4' };
+    const opus = { provider: 'opencode-go', id: 'claude-opus-5' };
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model: glm } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('on glm') });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model: opus } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('on opus') });
+    expect(test.stateOf('s1')?.queue.map((item) => item.pick?.model?.id)).toEqual([
+      'glm-5.4',
+      'claude-opus-5',
+    ]);
+
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+    test.event('s1', runEnd('settled'));
+    await settle();
+    // The last model set before each message is the one its row promised.
+    const order = [
+      ...test.setModel.mock.calls.map((call, i) => ({
+        at: test.setModel.mock.invocationCallOrder[i],
+        what: call[0].id,
+      })),
+      ...test.prompt.mock.calls.map((call, i) => ({
+        at: test.prompt.mock.invocationCallOrder[i],
+        what: call[0],
+      })),
+    ].sort((a, b) => a.at - b.at);
+    expect(order.map((entry) => entry.what)).toEqual([
+      'glm-5.4',
+      'on glm',
+      'claude-opus-5',
+      'on opus',
+    ]);
+  });
+
+  it('a steer while streaming keeps the live model: the pick stays for the next turn', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model: { provider: 'zai', id: 'glm-5.4' } } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('join this run') });
+    const id = test.stateOf('s1')?.queue[0]?.id ?? '';
+
+    test.hub.handle({ sessionId: 's1', action: 'send', itemId: id });
+    await settle();
+
+    // Sent as a steer into the running turn — which keeps its own model.
+    expect(test.prompt).toHaveBeenCalledWith('join this run', 'steer', [], [], 's1');
+    expect(test.setModel).not.toHaveBeenCalled();
+  });
+
+  it('keeps a consumed pick when the turn it was for is refused', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const model = { provider: 'zai', id: 'glm-5.4' };
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('later') });
+    test.prompt.mockResolvedValueOnce({ accepted: false, reason: 'refused' });
+
+    test.states.set('s1', { streaming: false });
+    test.event('s1', runEnd('settled'));
+    await settle();
+
+    // The queue pauses with the item and its model intact, for the reader to retry.
+    expect(test.stateOf('s1')?.paused).toBe('failed');
+    expect(test.stateOf('s1')?.queue[0]?.pick).toEqual({ model });
+  });
+
+  it('a refused Send-now of a stamped item does not leak its model onto a later turn', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: false });
+    const model = { provider: 'zai', id: 'glm-5.4' };
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: { ...input('mine'), pick: { model } } });
+    const id = test.stateOf('s1')?.queue[0]?.id ?? '';
+    test.prompt.mockResolvedValueOnce({ accepted: false, reason: 'refused' });
+
+    test.hub.handle({ sessionId: 's1', action: 'send', itemId: id });
+    await settle();
+
+    // The item keeps its own model for the retry; the session has no pending
+    // pick, so nothing else inherits it.
+    expect(test.stateOf('s1')?.queue[0]?.pick).toEqual({ model });
+    expect(test.stateOf('s1')?.pending).toBeUndefined();
+  });
+
+  it('a queued model and a pending pick survive a restart', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    const model = { provider: 'zai', id: 'glm-5.4', name: 'GLM-5.4' };
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { model } });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('kept') });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { thinking: 'high' } });
+
+    // A fresh hub over the same data dir, as a restarted host would build one.
+    const restarted = setup(dir);
+    const state = restarted.hub.snapshot().states.find((entry) => entry.sessionId === 's1');
+    expect(state?.queue[0]?.pick).toEqual({ model });
+    expect(state?.pending).toEqual({ model, thinking: 'high' });
+    // The snapshot a reconnecting client receives is the same one.
+    expect(restarted.hub.snapshot().states.some((entry) => entry.sessionId === 's1')).toBe(true);
+  });
+
+  it('forgets a pending pick with its session', () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: true });
+    test.hub.handle({ sessionId: 's1', action: 'pick', pick: { thinking: 'low' } });
+    test.hub.forget('s1');
+    expect(test.stateOf('s1')).toBeUndefined();
+    expect(test.hub.snapshot().states).toEqual([]);
+  });
+});
 
 describe('ComposerHub', () => {
   let dir = '';

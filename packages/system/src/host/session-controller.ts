@@ -1787,11 +1787,41 @@ export class HostSessionController {
       await this.refreshDraftCatalog(picked, ticket);
       return;
     }
+    const picked = { provider, id, name: id };
+    if (this.deferPick(this.promptTarget())) {
+      this.options.services.composer?.handle({
+        sessionId: this.promptTarget() ?? '',
+        action: 'pick',
+        pick: { model: picked },
+      });
+      return;
+    }
     const ticket = this.beginThinkingLevelsRefresh();
     await this.guard(() =>
-      this.options.services.chat.setModel({ provider, id, name: id }, this.promptTarget()),
+      this.options.services.chat.setModel(picked, this.promptTarget()),
     );
     this.endThinkingLevelsRefresh(ticket);
+  }
+
+  /**
+   * True while a turn of this session is in flight, or its queue is paused or
+   * waiting, so a model or thinking pick must wait for the next turn instead of
+   * reaching the engine now. Both engines switch the live session at once —
+   * OpenCode reads the model at request time, pi has no streaming guard — so
+   * an immediate switch would run the rest of the current turn on the new
+   * model. A pick then goes to the shared hub as pending: the host applies it
+   * to the next turn, and every device sees the same "next".
+   */
+  private deferPick(sessionKey: string | undefined): boolean {
+    const composer = this.options.services.composer;
+    if (sessionKey === undefined || composer === undefined) {
+      return false;
+    }
+    if (this.options.services.registry.stateOf(sessionKey)?.streaming === true) {
+      return true;
+    }
+    const state = composer.snapshot().states.find((entry) => entry.sessionId === sessionKey);
+    return state !== undefined && (state.paused !== undefined || state.queue.length > 0);
   }
 
   /**
@@ -1862,6 +1892,14 @@ export class HostSessionController {
       this.draftThinking = level;
       this.saveDraftCard(draftKey);
       this.emitState();
+      return;
+    }
+    if (this.deferPick(this.promptTarget())) {
+      this.options.services.composer?.handle({
+        sessionId: this.promptTarget() ?? '',
+        action: 'pick',
+        pick: { thinking: level },
+      });
       return;
     }
     const result = await this.guard(() =>

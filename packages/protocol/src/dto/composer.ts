@@ -32,6 +32,23 @@ export interface SharedComposerPrompt {
   pins?: ChatPin[];
   /** Set when the item is a scheduled compaction rather than a message. */
   compaction?: { instructions?: string };
+  /**
+   * The model and thinking level this item fires on, stamped when it was
+   * queued: a pick made while a run is in flight belongs to the *next* turn,
+   * never the one already running. Absent means the session's pick in force
+   * when the queue drains it.
+   */
+  pick?: Pick;
+}
+
+/**
+ * A model and thinking level, as a queued turn or a session's next turn will
+ * run it. The model is the wire's own shape (as `DraftCard` carries it); the
+ * host names it a `ModelRef` when it hands the pick to the engine.
+ */
+export interface Pick {
+  model?: { provider: string; id: string; name?: string };
+  thinking?: ThinkingLevel;
 }
 
 /**
@@ -45,6 +62,12 @@ export interface SharedComposerState {
   sessionId: string;
   queue: SharedComposerPrompt[];
   paused?: ComposerPauseReason;
+  /**
+   * A pick made while a turn was running, waiting for that turn to end: the
+   * host applies it to the next one. Host-owned, so every device shows the
+   * same "next" and a reload keeps it.
+   */
+  pending?: Pick;
 }
 
 /** Relayed composer text: the words one device is typing, for the others. */
@@ -69,12 +92,20 @@ export type SharedComposerCommand =
         images?: PromptImage[];
         pins?: ChatPin[];
         compaction?: { instructions?: string };
+        pick?: Pick;
       };
     }
   | { sessionId: string; action: 'remove'; itemId: string }
   | { sessionId: string; action: 'move'; itemId: string; targetId: string }
   /** Run this item now (steer while streaming, a new turn while idle). */
   | { sessionId: string; action: 'send'; itemId: string }
+  /**
+   * A model or thinking pick for a session whose turn is still running: held
+   * by the host and applied to the next turn instead of the live one. While
+   * idle the ordinary `model/set` / `thinking/set` apply at once, so this is
+   * never needed for them.
+   */
+  | { sessionId: string; action: 'pick'; pick: Pick }
   /** Clear the pause and run the head now. */
   | { sessionId: string; action: 'continue' }
   /** Clear the pause only; the queue drains on the next natural finish. */

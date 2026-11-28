@@ -118,7 +118,12 @@
                 </button>
               </div>
             } @else {
-              <span class="queue-text" [title]="item.text">{{ item.text }}</span>
+              <span class="queue-text" [title]="item.text">
+                {{ item.text }}
+                @if (queuedModel(item); as model) {
+                  <span class="queue-note" title="The model this message runs on">· {{ model }}</span>
+                }
+              </span>
               <div class="queue-actions">
                 <button
                   type="button"
@@ -638,7 +643,12 @@
         (pointerdown)="onModelTriggerPointerdown($event)"
         (click)="toggleModelPicker()"
       >
-        <span class="label">{{ currentModel()?.name || 'no model' }}</span>
+        <span class="label">
+          {{ currentModel()?.name || 'no model' }}
+          @if (nextModelName(); as next) {
+            <span class="label-next" title="Applies from the next message — the running one keeps its model">→ {{ next }}</span>
+          }
+        </span>
         <morse-model-inputs class="inputs" [input]="currentModel()?.input" />
         <span class="caret" aria-hidden="true">▾</span>
       </button>

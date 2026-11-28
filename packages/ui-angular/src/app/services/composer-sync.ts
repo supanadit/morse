@@ -37,7 +37,7 @@ export class ComposerSync {
 
   constructor() {
     this.morse.onComposerState((state) =>
-      this.queue.replaceSession(state.sessionId, state.queue, state.paused),
+      this.queue.replaceSession(state.sessionId, state.queue, state.paused, state.pending),
     );
     this.morse.onComposerDraft((draft) => {
       if (draft.origin !== this.origin) {

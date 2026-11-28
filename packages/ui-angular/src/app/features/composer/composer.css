@@ -186,6 +186,13 @@
   color: var(--morse-fg-muted);
   opacity: 0.8;
 }
+/* A pick made while a turn runs names the *next* turn: shown after the live
+   model, muted, so the reader sees both what is running and what comes. */
+.label-next {
+  color: var(--morse-fg-muted);
+  font-size: 0.85em;
+  margin-left: 6px;
+}
 .queue-grip {
   flex: none;
   color: var(--morse-fg-muted);

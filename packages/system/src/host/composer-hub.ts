@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentEvent } from '@morse/agent';
+import type { AgentEvent, ModelRef, ThinkingLevel } from '@morse/agent';
 import type {
   ChatPin,
   ComposerPauseReason,
   HostToClientMessage,
+  Pick,
   PromptImage,
   PromptMode,
   SharedComposerCommand,
@@ -25,6 +26,8 @@ export interface ComposerChat {
     sessionKey?: string,
   ): Promise<{ accepted: boolean; reason?: string }>;
   compact(instructions?: string, sessionKey?: string): Promise<void>;
+  setModel(model: ModelRef, sessionKey?: string): Promise<void>;
+  setThinkingLevel(level: ThinkingLevel, sessionKey?: string): Promise<void>;
 }
 
 /** The transcript sink a dispatched prompt writes its user row through. */
@@ -54,6 +57,8 @@ export interface ComposerHubOptions {
 interface HubSession {
   queue: SharedComposerPrompt[];
   paused?: ComposerPauseReason;
+  /** A pick made mid-run, waiting for the next turn (see `SharedComposerState`). */
+  pending?: Pick;
 }
 
 const COMPOSER_VERSION = 1;
@@ -123,7 +128,7 @@ export class ComposerHub {
   snapshot(): { states: SharedComposerState[]; drafts: SharedComposerDraft[] } {
     const states: SharedComposerState[] = [];
     for (const [sessionId, session] of this.sessions) {
-      if (session.queue.length > 0 || session.paused !== undefined) {
+      if (session.queue.length > 0 || session.paused !== undefined || session.pending !== undefined) {
         states.push(this.stateOf(sessionId));
       }
     }
@@ -180,6 +185,56 @@ export class ComposerHub {
       case 'resume':
         this.resume(command.sessionId);
         return;
+      case 'pick': {
+        // A model pick and a thinking pick are two halves of one next turn:
+        // merge them, so choosing a model then a level keeps both.
+        const session = this.sessionOf(command.sessionId);
+        const pending = session.pending;
+        session.pending = {
+          ...(pending?.model === undefined ? {} : { model: pending.model }),
+          ...(pending?.thinking === undefined ? {} : { thinking: pending.thinking }),
+          ...(command.pick.model === undefined ? {} : { model: command.pick.model }),
+          ...(command.pick.thinking === undefined ? {} : { thinking: command.pick.thinking }),
+        };
+        this.changed(command.sessionId);
+        return;
+      }
+    }
+  }
+
+  /**
+   * The pick the next queued turn of this session fires on: the one stamped
+   * on the item when it was queued, else whatever is pending, else nothing —
+   * the session's pick in force. The first item to leave with a pending pick
+   * consumes it, exactly as a send after the run would.
+   */
+  private takePick(sessionKey: string, item: SharedComposerPrompt): Pick | undefined {
+    const pending = this.sessions.get(sessionKey)?.pending;
+    if (pending === undefined) {
+      return item.pick;
+    }
+    // The pending pick belongs to the *next* turn, whichever item that is: an
+    // item stamped from it was a snapshot of the same choice, so leaving the
+    // pending copy behind would apply it a second time, to the turn after.
+    this.sessionOf(sessionKey).pending = undefined;
+    this.broadcastState(sessionKey);
+    this.persist();
+    return item.pick ?? pending;
+  }
+
+  /** Applies a pick to the session right before its turn starts. */
+  private async applyPick(pick: Pick | undefined, sessionKey: string): Promise<void> {
+    if (pick === undefined) {
+      return;
+    }
+    if (pick.model !== undefined) {
+      await this.options.chat.setModel(
+        { provider: pick.model.provider, id: pick.model.id, name: pick.model.name ?? pick.model.id },
+        sessionKey,
+      );
+    }
+    if (pick.thinking !== undefined) {
+      await this.options.chat.setThinkingLevel(pick.thinking, sessionKey);
     }
   }
 
@@ -255,6 +310,9 @@ export class ComposerHub {
       ...(item.images === undefined ? {} : { images: item.images }),
       ...(item.pins === undefined ? {} : { pins: item.pins }),
       ...(item.compaction === undefined ? {} : { compaction: item.compaction }),
+      ...(item.pick ?? session.pending
+        ? { pick: item.pick ?? session.pending }
+        : {}),
     });
     this.changed(sessionKey);
     // The run can settle between the keypress and this command: an idle session
@@ -315,12 +373,20 @@ export class ComposerHub {
     }
     session.paused = undefined;
     const streaming = this.options.registry.stateOf(sessionKey)?.streaming === true;
-    const result = await this.dispatch(sessionKey, item, streaming ? 'steer' : 'new');
-    if (result === 'failed') {
+    // A steer joins the run in flight, which keeps its own model; only a new
+    // turn takes the pick. The stamped pick stays with the item either way.
+    const pick = streaming ? undefined : this.takePick(sessionKey, item);
+    const result = await this.dispatch(sessionKey, item, streaming ? 'steer' : 'new', pick);
+    if (result === 'failed' || (result === 'wait' && index >= 0)) {
+      // Only the session's own consumed pick returns to pending: a pick that
+      // was the item's would otherwise leak onto some later, unrelated turn.
+      if (pick !== undefined && item.pick === undefined) {
+        this.sessionOf(sessionKey).pending = pick;
+      }
       session.queue.splice(Math.min(index, session.queue.length), 0, item);
-      this.failQueue(sessionKey);
-    } else if (result === 'wait' && index >= 0) {
-      session.queue.splice(Math.min(index, session.queue.length), 0, item);
+      if (result === 'failed') {
+        this.failQueue(sessionKey);
+      }
     }
     this.changed(sessionKey);
   }
@@ -367,14 +433,17 @@ export class ComposerHub {
     this.dispatching.add(sessionKey);
     session.queue = session.queue.slice(1);
     this.changed(sessionKey);
-    const result = await this.dispatch(sessionKey, item, 'new');
-    if (result === 'failed') {
+    const pick = this.takePick(sessionKey, item);
+    const result = await this.dispatch(sessionKey, item, 'new', pick);
+    if (result === 'failed' || result === 'wait') {
       const current = this.sessionOf(sessionKey);
+      if (pick !== undefined && item.pick === undefined) {
+        current.pending = pick;
+      }
       current.queue.unshift(item);
-      this.failQueue(sessionKey);
-    } else if (result === 'wait') {
-      const current = this.sessionOf(sessionKey);
-      current.queue.unshift(item);
+      if (result === 'failed') {
+        this.failQueue(sessionKey);
+      }
     }
     this.dispatching.delete(sessionKey);
     this.changed(sessionKey);
@@ -390,8 +459,10 @@ export class ComposerHub {
     sessionKey: string,
     item: SharedComposerPrompt,
     mode: PromptMode,
+    pick?: Pick,
   ): Promise<'sent' | 'wait' | 'failed'> {
     try {
+      await this.applyPick(pick, sessionKey);
       if (item.compaction !== undefined) {
         // A rewrite owns the session exactly like the dialog's yes does: the
         // flags gate queued sends and light the Working indicator, and the
@@ -481,6 +552,7 @@ export class ComposerHub {
       sessionId: sessionKey,
       queue: session?.queue ?? [],
       ...(session?.paused === undefined ? {} : { paused: session.paused }),
+      ...(session?.pending === undefined ? {} : { pending: session.pending }),
     };
   }
 
@@ -525,7 +597,7 @@ export class ComposerHub {
   private persist(): void {
     const sessions: Record<string, HubSession> = {};
     for (const [sessionId, session] of this.sessions) {
-      if (session.queue.length > 0 || session.paused !== undefined) {
+      if (session.queue.length > 0 || session.paused !== undefined || session.pending !== undefined) {
         sessions[sessionId] = session;
       }
     }
@@ -550,7 +622,7 @@ function asHubSession(value: unknown): HubSession | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined;
   }
-  const candidate = value as { queue?: unknown; paused?: unknown };
+  const candidate = value as { queue?: unknown; paused?: unknown; pending?: unknown };
   if (!Array.isArray(candidate.queue)) {
     return undefined;
   }
@@ -564,11 +636,53 @@ function asHubSession(value: unknown): HubSession | undefined {
   }
   const paused =
     candidate.paused === 'stopped' || candidate.paused === 'failed' ? candidate.paused : undefined;
+  const pending = asPick(candidate.pending);
   return {
     queue,
     ...(paused === undefined ? {} : { paused }),
+    ...(pending === undefined ? {} : { pending }),
   };
 }
+
+/**
+ * A pick as persisted or as a client sent it. Read field by field: a model
+ * with no provider or id, or a thinking level outside the known set, is
+ * dropped rather than sent to an engine that would refuse it.
+ */
+function asPick(value: unknown): Pick | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const model = candidate['model'];
+  const modelPick =
+    typeof model === 'object' &&
+    model !== null &&
+    typeof (model as Record<string, unknown>)['provider'] === 'string' &&
+    typeof (model as Record<string, unknown>)['id'] === 'string'
+      ? (model as Pick['model'])
+      : undefined;
+  const thinking = THINKING_LEVELS.has(candidate['thinking'] as ThinkingLevel)
+    ? (candidate['thinking'] as ThinkingLevel)
+    : undefined;
+  if (modelPick === undefined && thinking === undefined) {
+    return undefined;
+  }
+  return {
+    ...(modelPick === undefined ? {} : { model: modelPick }),
+    ...(thinking === undefined ? {} : { thinking }),
+  };
+}
+
+const THINKING_LEVELS = new Set<string>([
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
 
 function asPrompt(value: unknown): SharedComposerPrompt | undefined {
   if (typeof value !== 'object' || value === null) {
@@ -579,6 +693,7 @@ function asPrompt(value: unknown): SharedComposerPrompt | undefined {
     return undefined;
   }
   const compaction = candidate['compaction'];
+  const pick = asPick(candidate['pick']);
   return {
     id: candidate['id'],
     text: candidate['text'],
@@ -589,5 +704,6 @@ function asPrompt(value: unknown): SharedComposerPrompt | undefined {
     ...(typeof compaction === 'object' && compaction !== null
       ? { compaction: compaction as { instructions?: string } }
       : {}),
+    ...(pick === undefined ? {} : { pick }),
   };
 }

@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import type { ChatPin, PromptImage, SharedComposerPrompt } from '@morse/protocol';
+import type { ChatPin, Pick, PromptImage, SharedComposerPrompt } from '@morse/protocol';
 
 /**
  * A follow-up the user queued while the agent was working. The words and the
@@ -17,6 +17,12 @@ export interface QueuedPrompt {
    * or after the follow-ups around it.
    */
   compaction?: { instructions?: string };
+  /**
+   * The model and thinking level this row fires on, stamped when it was queued:
+   * a pick made while a turn runs belongs to the next one, so each row can name
+   * a different model. Absent means the session's pick in force when it drains.
+   */
+  pick?: Pick;
   /** The session it was queued for, so a settle elsewhere cannot dispatch it. */
   sessionId?: string;
 }
@@ -35,6 +41,8 @@ export class QueuedPrompts {
   private readonly items = signal<readonly QueuedPrompt[]>([]);
   /** Why a shared session's queue is paused; absent on a host without one. */
   private readonly pausedBy = signal<ReadonlyMap<string, 'stopped' | 'failed'>>(new Map());
+  /** The pick waiting for a session's running turn to end, as the host holds it. */
+  private readonly pendingBy = signal<ReadonlyMap<string, Pick>>(new Map());
   private counter = 0;
 
   readonly queued = this.items.asReadonly();
@@ -43,6 +51,11 @@ export class QueuedPrompts {
   /** Why `owner`'s queue stopped draining, or `undefined` when it is running. */
   pausedReason(owner: string | undefined): 'stopped' | 'failed' | undefined {
     return owner === undefined ? undefined : this.pausedBy().get(owner);
+  }
+
+  /** The pick a running turn of `owner` is holding for the next turn, if any. */
+  pendingPick(owner: string | undefined): Pick | undefined {
+    return owner === undefined ? undefined : this.pendingBy().get(owner);
   }
 
   /**
@@ -54,6 +67,7 @@ export class QueuedPrompts {
     owner: string,
     items: readonly SharedComposerPrompt[],
     paused?: 'stopped' | 'failed',
+    pending?: Pick,
   ): void {
     this.items.update((list) => [
       ...list.filter((item) => item.sessionId !== owner),
@@ -70,6 +84,15 @@ export class QueuedPrompts {
         next.delete(owner);
       } else {
         next.set(owner, paused);
+      }
+      return next;
+    });
+    this.pendingBy.update((current) => {
+      const next = new Map(current);
+      if (pending === undefined) {
+        next.delete(owner);
+      } else {
+        next.set(owner, pending);
       }
       return next;
     });
