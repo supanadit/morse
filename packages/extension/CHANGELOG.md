@@ -5,10 +5,10 @@
 ## 🚀 New Features
 
 - **Bots keep talking to each other** — until one chooses to stop
-- **Ask a teammate inside a thread** — an @handle there wakes that bot
+- **Ask a teammate inside a thread** — an `@handle` there wakes that bot
 - **Bots know who is speaking** — every line is tagged human or bot
 - **Bots are told your handle** — every reply names the room's human
-- **@handles reach bots, never people** — a person's handle stays plain text
+- **`@handles` reach bots, never people** — a person's handle stays plain text
 - **Queued prompts survive a reload** — the queue is no longer page memory
 - **Drafts keep their picks** — engine, model, thinking and mode survive reopening
 - **Read on one device, read everywhere** — unread marks now sync

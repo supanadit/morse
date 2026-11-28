@@ -35,7 +35,8 @@ manifest disagrees with it, so the version in the tag, the VSIX, the npm package
 4. Write the `## <version>` section of [`CHANGELOG.md`](../packages/extension/CHANGELOG.md). It is two things at
    once: what a VS Code user reads in the extension's changelog, and the body of the GitHub Release — the
    workflow extracts that section, and only falls back to the notes GitHub generates from commit subjects when a
-   version has no section. Keep it about what a user gets: bold lead-in, one sentence, no commit hashes.
+   version has no section. Keep it about what a user gets: bold lead-in, one sentence, no commit hashes. Wrap any
+   literal `@handle` in backticks — a bare one becomes a mention of whoever actually owns that handle on GitHub.
 
 5. Commit, tag, and push:
 
