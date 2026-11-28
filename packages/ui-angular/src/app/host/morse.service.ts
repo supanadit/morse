@@ -40,7 +40,7 @@ import { MORSE_TRANSPORT } from './transport.token';
  * manifest to read at runtime, and `host/frontend-identity.spec.ts` fails when it
  * drifts from `package.json`.
  */
-export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.32.0' };
+export const FRONTEND_IDENTITY = { name: '@morse/ui-angular', version: '0.33.0' };
 const SLOW_CONNECTION_MS = 6_000;
 
 /**

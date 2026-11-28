@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.33.0 — 28 November 2026
+
+## 🚀 New Features
+
+- **Team logins** — each member sees only their own sessions and drafts
+- **Single sign-on** — log in with the account you already use
+- **A real login page** — no more browser prompt on password-protected hosts
+- **Revocable login cookies** — change one secret to sign everyone out
+- **Self-service passwords and SSH keys** — members manage them without an admin
+- **Your Workspaces shelf** — open only the folders assigned to you
+- **Git identity in settings** — set your name and email without a terminal
+- **Provider settings for every engine** — pick models and edit custom endpoints
+- **Every open session stays ready** — switching back is instant
+- **Drafts survive closed tabs** — reopen a tab with its unsent prompt
+- **Ask teammates by mentioning them** — bots pass questions to each other
+- **Unread dots and tab counters** — spot new replies without opening every room
+- **Attach video, audio and PDFs** — see which engines can read them
+- **A container for teams** — one server, separate workspaces and logins for everyone
+- **An official server image** ships with every release
+
+## 🐛 Bug Fixes
+
+- Switching modes no longer loses your open tabs
+- Bot settings survive edits and reach OpenCode rooms
+- Dark theme unread dots stay visible on row icons
+- Session lists and bot rosters load in every mode
+- SSH and GPG keys land in the right home folder
+- Homebrew and sudo-installed engines are found on macOS
+- Model chips and header buttons behave on provider pages
+- Engine pickers keep working after a disconnect or switch
+- A session's history appears the first time you open it
+- Settings links appear only where they belong on each host
+- Model lists refresh after an engine switch without a restart
+
+## 📝 Contributors
+
+- @supanadit
+
+**Full Changelog:** [`v0.32.0...v0.33.0`](https://github.com/supanadit/morse/compare/v0.32.0...v0.33.0)
+
 ## 0.32.0 — 25 November 2026
 
 ## 🚀 New Features
