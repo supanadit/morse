@@ -24,6 +24,9 @@ describe('BOT_BUS_INSTRUCTION', () => {
     expect(BOT_BUS_INSTRUCTION).toMatch(/never look for another way to reach Morse/);
     expect(BOT_BUS_INSTRUCTION).toMatch(/whatever you write in a group, the person reads/);
     expect(BOT_BUS_INSTRUCTION).toMatch(/never ask a teammate to pass it on/);
+    // `@` routes bots only; a person is reached with human_send or not at all.
+    expect(BOT_BUS_INSTRUCTION).toMatch(/@handle` reaches a bot, never a person/);
+    expect(BOT_BUS_INSTRUCTION).toMatch(/not in the room with `human_send`/);
   });
 
   it('asks a bot in the room by mention and ends the turn there', () => {
