@@ -23,7 +23,7 @@
     "@morse/system": "*",
     "@nestjs/common": "^12.1.2",
     "@nestjs/core": "^12.1.2",
-    "@nestjs/platform-express": "^12.1.2",
+    "@nestjs/platform-express": "^12.6.3",
     "@nestjs/platform-ws": "^12.1.2",
     "@nestjs/websockets": "^12.1.2",
     "knex": "^3.3.0",
