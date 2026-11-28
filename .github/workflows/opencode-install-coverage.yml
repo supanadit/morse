@@ -37,6 +37,10 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
+# Read-only token: nothing here writes to the repo.
+permissions:
+  contents: read
+
 jobs:
   install:
     name: ${{ matrix.name }}

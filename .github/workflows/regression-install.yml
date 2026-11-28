@@ -12,6 +12,10 @@ on:
     branches: [master]
   pull_request:
 
+# Read-only token: nothing here writes to the repo.
+permissions:
+  contents: read
+
 concurrency:
   group: regression-install-${{ github.ref }}
   cancel-in-progress: true

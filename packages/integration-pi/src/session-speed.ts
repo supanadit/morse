@@ -101,7 +101,9 @@ export function snapshotSpeed(stored: StoredSessionSpeed | undefined): SessionSp
 
 /** The file a session's accumulator is stored in (exported for tests). */
 export function speedFile(dataDir: string, session: string): string {
-  const hash = createHash('sha1').update(session).digest('hex').slice(0, 16);
+  // sha256 over sha1: no reason to reach for a broken digest, and 16 hex
+  // characters are just as collision-free for a cache filename.
+  const hash = createHash('sha256').update(session).digest('hex').slice(0, 16);
   return join(dataDir, SPEED_DIR, `${hash}.json`);
 }
 

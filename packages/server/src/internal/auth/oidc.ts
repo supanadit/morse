@@ -214,6 +214,17 @@ export async function discoverEndpoints(discoveryUrl: string): Promise<{
     `${normalized}/.well-known/openid-configuration`,
   ];
   let lastError = '';
+  let target: URL;
+  try {
+    target = new URL(discoveryUrl.trim());
+  } catch {
+    throw new Error('The discovery URL is not a valid URL.');
+  }
+  // Discovery is an admin-set URL, but refusing anything but http(s) keeps a
+  // stray `file:`/`data:` from reaching fetch.
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+    throw new Error('The discovery URL must be http or https.');
+  }
   for (const candidate of new Set(candidates)) {
     try {
       const response = await fetch(candidate, { headers: { accept: 'application/json' } });
