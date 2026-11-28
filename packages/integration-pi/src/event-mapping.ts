@@ -390,11 +390,11 @@ function mapMessageEnd(record: RpcRecord, now: () => number): MappedRecord {
   }
 
   const events: AgentEvent[] = [];
-  // Deliberately no `streaming: false` here. A run contains many turns
-  // (thinking -> tool -> thinking -> tool), so the flag means "the agent is
-  // working", exactly like pi's own `isStreaming`; only `agent_settled` and a
-  // fatal error end it. Flipping it per message made every progress indicator
-  // (and the process timeline) blink once per step.
+  // Mid-run turns deliberately keep `streaming: true` — a run contains many
+  // turns (thinking -> tool -> thinking -> tool), and flipping per message made
+  // every progress indicator blink. `agent_settled` normally ends a run; a
+  // message that stops with an error ends it here instead, and the later
+  // `agent_settled` is swallowed by the agent (one run-end per run).
   const state: Partial<AgentSessionState> = {};
   const usage = toUsage(message.usage);
   if (usage) {
@@ -414,6 +414,11 @@ function mapMessageEnd(record: RpcRecord, now: () => number): MappedRecord {
     events.push({ type: 'agent/run-end', at: now(), reason: 'aborted' });
   } else if (message.stopReason === 'error') {
     events.push(notice('error', 'The model request failed.', now));
+    // A provider/model error is a red finish, not a green one: without an error
+    // run-end here, pi's later `agent_settled` would look like a normal success
+    // and the host's composer would send the queued follow-ups unasked.
+    state.streaming = false;
+    events.push({ type: 'agent/run-end', at: now(), reason: 'error' });
   }
 
   return { events, state };

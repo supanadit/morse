@@ -94,6 +94,8 @@ export class PiRpcAgent extends Session {
   private readonly now: () => number;
   private ready = false;
   private disposed = false;
+  /** A failed message ended the run already; pi's later settled is not a second finish. */
+  private suppressNextSettled = false;
   /**
    * Watches this session's prompt directories so a template written outside
    * Morse (the editor, `vim`, `nano`) reaches the palette without a reload.
@@ -237,6 +239,8 @@ export class PiRpcAgent extends Session {
     const message = appendPinMentions(text, pins);
     // A new prompt appends to pi's history, so any cached read is now stale.
     this.historyCache = undefined;
+    // A new run must not inherit the previous run's swallowed settle.
+    this.suppressNextSettled = false;
     const command =
       mode === 'steer'
         ? ({ type: 'steer', message, ...imageArgs } as const)
@@ -521,7 +525,14 @@ export class PiRpcAgent extends Session {
     switch (record['type']) {
       case 'agent_settled':
         this.patch({ streaming: false }, this.now());
-        this.emit({ type: 'agent/run-end', at: this.now(), reason: 'settled' });
+        // A provider error already ended this run as `error`; pi still sends
+        // `agent_settled`, and treating that as a green finish would drain the
+        // composer queue past a red failure.
+        if (this.suppressNextSettled) {
+          this.suppressNextSettled = false;
+        } else {
+          this.emit({ type: 'agent/run-end', at: this.now(), reason: 'settled' });
+        }
         // A settled run is the moment cumulative tokens/cost/context are final.
         void this.refreshStats();
         return;
@@ -556,6 +567,11 @@ export class PiRpcAgent extends Session {
     }
     for (const event of mapped.events) {
       this.emit(event);
+    }
+    if (
+      mapped.events.some((event) => event.type === 'agent/run-end' && event.reason === 'error')
+    ) {
+      this.suppressNextSettled = true;
     }
     // Compaction rewrites the context, so the footer's percentage must follow.
     if (record['type'] === 'compaction_end') {

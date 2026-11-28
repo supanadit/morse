@@ -285,6 +285,42 @@ describe('mapSessionEvent tool_execution_end', () => {
   });
 });
 
+describe('mapSessionEvent message_end', () => {
+  it('ends a failed model request as an error run, not a green settle', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'error',
+          usage: { input: 1, output: 0, totalTokens: 1 },
+        },
+      },
+      () => 7,
+    );
+
+    expect(mapped.events).toEqual([
+      { type: 'agent/notice', at: 7, level: 'error', text: 'The model request failed.' },
+      { type: 'agent/run-end', at: 7, reason: 'error' },
+    ]);
+    // Working stops here: a queued follow-up must not be sent on a red finish.
+    expect(mapped.state).toMatchObject({ streaming: false });
+  });
+
+  it('leaves a normal turn running until pi settles it', () => {
+    const mapped = mapSessionEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], stopReason: 'endTurn' },
+      },
+      (): number => 7,
+    );
+    expect(mapped.events.some((event) => event.type === 'agent/run-end')).toBe(false);
+    expect(mapped.state?.streaming).toBeUndefined();
+  });
+});
+
 describe('toHistory (a flat `get_messages` list)', () => {
   it('still pairs tool results with their calls', () => {
     const history = toHistory([

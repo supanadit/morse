@@ -607,6 +607,56 @@ setTimeout(() => process.exit(1), 20);
     expect(states.at(-1)?.streaming).toBe(false);
   });
 
+  it("ends a failed provider request once, so pi's later settle cannot drain the queue", async () => {
+    const cwd = await tempRoot();
+    const agentRoot = await tempRoot();
+    const failingPi = String.raw`
+const write = (line) => process.stdout.write(JSON.stringify(line) + '\n');
+const respond = (req, data) => write({ type: 'response', id: req.id, command: req.type, success: true, data });
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  for (const line of String(chunk).split('\n')) {
+    if (!line.trim()) continue;
+    const req = JSON.parse(line);
+    if (req.type === 'get_state') {
+      respond(req, { sessionFile: '/tmp/morse-failed.jsonl', sessionId: 'failed-session' });
+    } else if (req.type === 'prompt') {
+      respond(req, { disposition: 'started' });
+      // pi reports a provider error on the assistant message, then still sends
+      // agent_settled: the host must see one red finish, not two finishes.
+      write({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error' } });
+      setTimeout(() => write({ type: 'agent_settled', at: Date.now() }), 20);
+    } else {
+      respond(req, {});
+    }
+  }
+});
+`;
+    const events: AgentEvent[] = [];
+    agent = new PiRpcAgent({
+      spawn: { command: process.execPath, args: ['-e', failingPi], source: 'node-entry' },
+      workspace: { cwd, name: 'morse-spec' },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentRoot },
+    });
+    agent.subscribe((event) => events.push(event));
+    await agent.initialize();
+    await agent.prompt('try again', 'new');
+
+    await vi.waitFor(() => {
+      expect(events.filter((event) => event.type === 'agent/run-end')).toHaveLength(1);
+    }, { timeout: 5_000, interval: 10 });
+
+    const ends = events.filter(
+      (event): event is Extract<AgentEvent, { type: 'agent/run-end' }> =>
+        event.type === 'agent/run-end',
+    );
+    expect(ends[0]?.reason).toBe('error');
+    expect(events.some((event) => event.type === 'agent/notice' && event.text === 'The model request failed.')).toBe(true);
+    const states = events.flatMap((event) => (event.type === 'agent/state' ? [event.state] : []));
+    expect(states.at(-1)?.streaming).toBe(false);
+  });
+
   it('re-pulls the totals when a message lands, before the run settles', async () => {
     const cwd = await tempRoot();
     const agentRoot = await tempRoot();
