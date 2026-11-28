@@ -24,13 +24,15 @@ FROM debian:bookworm-slim AS base
 
 ARG NODE_VERSION=v22.23.5
 ARG EZX_VERSION=0.8.1
-# Floating by default: a plain `docker build` gets the current pi and OpenCode.
-# The release workflow resolves both at tag time and passes them explicitly, so
-# a registry cache can never bake an older "latest" into a new release. To pin
+# Floating by default: a plain `docker build` gets the current pi and the
+# newest 2.x OpenCode. (`releases/latest` still points at the 1.x line, so
+# `latest` is resolved here to the newest `v2` tag — never 1.x.) The release
+# workflow resolves both at tag time and passes them explicitly, so
+# a registry cache can never bake an older engine into a new release. To pin
 # by hand, pass PI_VERSION / OPENCODE_VERSION / OC_SHA_X64 / OC_SHA_ARM64 (the
 # checksums come from the release's `opencode-linux-*.tar.gz` assets). Morse
-# adapts to both 1.x and 2.x: it supplies the server password itself rather
-# than waiting for 2.x to announce one.
+# speaks both wires (1.x wraps prompts, asks `question`s), and supplies the
+# server password itself on 2.x rather than waiting for an announcement.
 ARG PI_VERSION=latest
 ARG OPENCODE_VERSION=latest
 # Only consulted when OPENCODE_VERSION is pinned: latest moves, so a fixed
@@ -95,7 +97,13 @@ RUN set -e; \
     else OC_ARCH=x64; OC_SHA="${OC_SHA_X64}"; fi; \
     mkdir -p /opt/engines; \
     npm install --prefix /opt/engines -g @earendil-works/pi-coding-agent@${PI_VERSION}; \
-    curl -fsSL "https://github.com/sst/opencode/releases/${OPENCODE_VERSION}/download/opencode-linux-${OC_ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
+    OC_TAG="${OPENCODE_VERSION}"; \
+    if [ "${OC_TAG}" = "latest" ]; then \
+      OC_TAG="$(curl -fsSL 'https://api.github.com/repos/sst/opencode/releases?per_page=100' | grep -o '"tag_name": *"v2[^"]*"' | cut -d'"' -f4 | sort -V | tail -n 1)"; \
+    fi; \
+    if [ -z "${OC_TAG}" ]; then echo 'Could not resolve the newest OpenCode v2 tag.' >&2; exit 1; fi; \
+    echo "OpenCode ${OC_TAG} for linux/${OC_ARCH}"; \
+    curl -fsSL "https://github.com/sst/opencode/releases/download/${OC_TAG}/opencode-linux-${OC_ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
     if [ -n "${OC_SHA}" ]; then echo "${OC_SHA}  /tmp/opencode.tar.gz" | sha256sum -c -; fi; \
     mkdir -p /opt/engines/opencode && tar -xzf /tmp/opencode.tar.gz -C /opt/engines/opencode; \
     rm /tmp/opencode.tar.gz; \

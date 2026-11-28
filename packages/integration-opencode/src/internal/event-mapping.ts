@@ -11,8 +11,10 @@ import type { OpenCodeEvent } from './event-stream.js';
 import {
   toFormRequest,
   toPermissionRequest,
+  toQuestionRequest,
   type ApiForm,
   type ApiPermissionRequest,
+  type ApiQuestion,
 } from './form-mapping.js';
 import { childSessionOf, childSessionFromText } from './child-session.js';
 
@@ -63,6 +65,12 @@ export class OpenCodeEventMapper {
   private readonly toolNames = new Map<string, string>();
   /** Tool ids whose transcript row was actually started. */
   private readonly startedTools = new Set<string>();
+  /**
+   * 1.x streaming has no per-delta kind: `message.part.delta` carries only
+   * the field name, so the part's kind comes from its last full snapshot
+   * (`message.part.updated`). Unknown parts read as text rather than vanish.
+   */
+  private readonly partKinds = new Map<string, 'text' | 'thinking'>();
 
   get streaming(): boolean {
     return this.running;
@@ -309,10 +317,96 @@ export class OpenCodeEventMapper {
 
       case 'form.replied':
       case 'form.cancelled':
+      case 'question.replied':
+      case 'question.rejected':
       case 'permission.replied':
         // Settled elsewhere (another client, the TUI); the agent uses these only
         // to release its pending map, so there is no transcript event.
         return { events: [] };
+
+      case 'question.asked': {
+        // 1.x asks with fixed-option questions instead of typed forms. The
+        // mapper skips shells with nothing answerable rather than crash the
+        // host on a dialog nobody can fill (see `form.created`).
+        const request = toQuestionRequest(data as unknown as ApiQuestion);
+        if (request === undefined) {
+          return { events: [] };
+        }
+        return {
+          events: [{ type: 'agent/interaction', at, request }],
+        };
+      }
+
+      case 'message.part.delta': {
+        // 1.x streams text and thinking through one delta shape; the kind is
+        // whatever the part's last snapshot said it was.
+        const delta = asString(data['delta']);
+        if (delta === undefined || delta.length === 0) {
+          return { events: [] };
+        }
+        const channel = this.partKinds.get(asString(data['partID']) ?? '') ?? 'text';
+        const started = this.startRun(at);
+        this.appendText(channel, delta);
+        return {
+          events: [...started.events, { type: 'agent/delta', at, channel, delta }],
+          ...(started.state === undefined ? {} : { state: started.state }),
+        };
+      }
+
+      case 'message.part.updated':
+        return this.mapV1Part(data, at);
+
+      case 'message.updated': {
+        // 1.x closes an assistant message with `time.completed`; that is the
+        // turn's end the same way `session.execution.*` is on 2.x.
+        const info = asRecord(data['info']);
+        if (info?.['role'] !== 'assistant' || asRecord(info['time'])?.['completed'] === undefined) {
+          return { events: [] };
+        }
+        const flushed = this.flushMessage(at);
+        const ended = this.endRun(asRecord(info['error']) === undefined ? 'settled' : 'error', at);
+        // 1.x names the model `modelID`; 2.x names it `id`. Read both.
+        const modelRecord = asRecord(info['model']);
+        const modelId = asString(modelRecord?.['id']) ?? asString(modelRecord?.['modelID']);
+        const provider = asString(modelRecord?.['providerID']);
+        const model = modelId === undefined || provider === undefined
+          ? undefined
+          : { provider, id: modelId, name: modelId };
+        const agent = asString(info['agent']);
+        const state = {
+          ...(ended.state ?? {}),
+          ...(model === undefined ? {} : { model }),
+          ...(agent === undefined ? {} : { mode: agent }),
+        };
+        return {
+          events: [...flushed.events, ...ended.events],
+          ...(Object.keys(state).length === 0 ? {} : { state }),
+        };
+      }
+
+      case 'session.error': {
+        const ended = this.endRun('error', at);
+        // 1.x nests the message (`{name, data: {message}}`); 2.x carries it
+        // flat (`{type, message}`). Read through either shape.
+        const raw = data['error'] ?? data['message'];
+        const failure = asFailure(raw) ?? asFailure(asRecord(raw)?.['data']);
+        if (failure === undefined || failure.type === 'aborted' || this.failureReported) {
+          return ended;
+        }
+        this.failureReported = true;
+        return {
+          events: [
+            ...ended.events,
+            {
+              type: 'agent/notice',
+              at,
+              level: 'error',
+              text: `The run failed: ${failure.message}`,
+            },
+          ],
+          ...(ended.state === undefined ? {} : { state: ended.state }),
+        };
+      }
 
       case 'session.retried':
       case 'session.retry.scheduled': {
@@ -384,6 +478,107 @@ export class OpenCodeEventMapper {
       default:
         return { events: [] };
     }
+  }
+
+  /**
+   * Opens the run at most once: a retried start for the same turn is not a
+   * second run. Returns the run-start event (if any) for the caller to emit.
+   */
+  private startRun(at: number): MappedRecord {
+    if (this.running) {
+      return { events: [] };
+    }
+    this.running = true;
+    this.failureReported = false;
+    return { events: [{ type: 'agent/run-start', at }], state: { streaming: true } };
+  }
+
+  /**
+   * One 1.x part snapshot: run framing (`step-start`/`step-finish`), tool
+   * rows by state, and the kind memory deltas read. Text snapshots are not
+   * transcript content — the deltas already delivered them.
+   */
+  private mapV1Part(data: Record<string, unknown>, at: number): MappedRecord {
+    const part = asRecord(data['part']);
+    if (part === undefined || typeof part['type'] !== 'string') {
+      return { events: [] };
+    }
+    switch (part['type']) {
+      case 'step-start':
+        return this.startRun(at);
+      case 'step-finish': {
+        const flushed = this.flushMessage(at);
+        const lastUsage = toTokenUsage(asRecord(part['tokens']));
+        const reason = asString(part['reason']);
+        const ended = this.endRun(reason === 'aborted' ? 'aborted' : 'settled', at);
+        return {
+          events: [...flushed.events, ...ended.events],
+          state: { ...(ended.state ?? {}), ...(lastUsage === undefined ? {} : { lastUsage }) },
+        };
+      }
+      case 'text':
+      case 'reasoning': {
+        const id = asString(part['id']);
+        if (id !== undefined) {
+          this.partKinds.set(id, part['type'] === 'reasoning' ? 'thinking' : 'text');
+        }
+        // A live part snapshot means a run is producing it (a resumed
+        // session replays history, not events, so this cannot be stale).
+        return this.startRun(at);
+      }
+      case 'tool':
+        return this.mapV1Tool(part, at);
+      default:
+        return { events: [] };
+    }
+  }
+
+  /** One 1.x tool part snapshot, through the same rows 2.x tool events use. */
+  private mapV1Tool(part: Record<string, unknown>, at: number): MappedRecord {
+    const id = asString(part['callID']);
+    const name = asString(part['tool']) ?? 'tool';
+    if (id === undefined) {
+      return { events: [] };
+    }
+    const state = asRecord(part['state']);
+    const status = state?.['status'];
+    const input = asRecord(state?.['input']);
+    if (status === 'pending' || status === 'running') {
+      const started = this.startTool({ ...part, id, name, input }, at);
+      if (status !== 'running' || !this.startedTools.has(id)) {
+        return started;
+      }
+      const output = typeof state?.['output'] === 'string' ? (state?.['output'] as string) : undefined;
+      return {
+        events: [
+          { type: 'agent/tool-update', at, toolCallId: id, ...(output === undefined ? {} : { output }), status: 'running' },
+        ],
+      };
+    }
+    // `completed`/`error`: the row without one is synthesized first, exactly
+    // like a 2.x result that arrived with no `called`.
+    const output =
+      typeof state?.['output'] === 'string'
+        ? (state?.['output'] as string)
+        : typeof state?.['error'] === 'string'
+          ? (state?.['error'] as string)
+          : undefined;
+    const events: AgentEvent[] = [];
+    if (!this.startedTools.has(id)) {
+      const started = this.startTool({ ...part, id, name, input }, at, true);
+      events.push(...started.events);
+    }
+    events.push({
+      type: 'agent/tool-end',
+      at,
+      toolCallId: id,
+      status: status === 'completed' ? 'ok' : 'error',
+      ...(output === undefined ? {} : { output }),
+      ...(asRecord(state?.['metadata']) === undefined ? {} : { details: asRecord(state?.['metadata']) as ToolResultDetails }),
+    });
+    this.startedTools.delete(id);
+    this.toolNames.delete(id);
+    return { events };
   }
 
   /** Folds a delta into the step being accumulated (flushed by the step's end). */

@@ -1810,3 +1810,95 @@ describe('readAvailableCommands template enrichment', () => {
     ]);
   });
 });
+
+describe('OpenCodeAgent 1.x wire', () => {
+  function v1Handler(): Handler {
+    const base = defaultHandler();
+    return (method, path, query, body) => {
+      if (method === 'POST' && path === '/session') {
+        return sessionInfo({ version: '1.19.6' });
+      }
+      if (method === 'GET' && path.endsWith('/question')) {
+        return [
+          {
+            id: 'q1',
+            sessionID: 'ses_1',
+            questions: [{ question: 'Pick', options: [{ label: 'a' }, { label: 'b' }] }],
+          },
+          {
+            id: 'q2',
+            sessionID: 'ses_1',
+            questions: [{ question: 'Other', options: [{ label: 'x' }] }],
+          },
+        ];
+      }
+      return base(method, path, query, body);
+    };
+  }
+
+  it('wraps prompts for a 1.x server', async () => {
+    const { agent, api } = await harness({ handler: v1Handler() });
+    expect(await agent.prompt('hello', 'new')).toBe('started');
+    expect(await agent.prompt('later', 'followUp')).toBe('started');
+    const prompts = api.calls.filter((call) => call.path.endsWith('/prompt'));
+    expect(prompts[0]?.body).toEqual({ prompt: { text: 'hello' } });
+    expect(prompts[1]?.body).toEqual({ prompt: { text: 'later' }, delivery: 'queue' });
+    await agent.dispose();
+  });
+
+  it('answers a 1.x question with labels in order, or rejects it', async () => {
+    const { agent, api, stream } = await harness({ handler: v1Handler() });
+    stream.emit('ses_1', {
+      type: 'question.asked',
+      data: {
+        sessionID: 'ses_1',
+        id: 'q1',
+        questions: [{ question: 'Pick', options: [{ label: 'a' }, { label: 'b' }] }],
+      },
+      created: 1,
+    });
+    await agent.respondToInteraction({ requestId: 'q1', values: { q0: 'b' } });
+    expect(api.calls).toContainEqual({
+      method: 'POST',
+      path: '/session/ses_1/question/q1/reply',
+      body: { answers: [['b']] },
+    });
+
+    stream.emit('ses_1', {
+      type: 'question.asked',
+      data: {
+        sessionID: 'ses_1',
+        id: 'q2',
+        questions: [{ question: 'Other', options: [{ label: 'x' }] }],
+      },
+      created: 2,
+    });
+    await agent.respondToInteraction({ requestId: 'q2', values: { q0: 'x' } });
+    expect(api.calls).toContainEqual({
+      method: 'POST',
+      path: '/session/ses_1/question/q2/reply',
+      body: { answers: [['x']] },
+    });
+    await agent.dispose();
+  });
+
+  it('rejects a cancelled 1.x question instead of replying', async () => {
+    const { agent, api, stream } = await harness({ handler: v1Handler() });
+    stream.emit('ses_1', {
+      type: 'question.asked',
+      data: {
+        sessionID: 'ses_1',
+        id: 'q3',
+        questions: [{ question: 'Pick', options: [{ label: 'a' }] }],
+      },
+      created: 3,
+    });
+    await agent.respondToInteraction({ requestId: 'q3', cancelled: true });
+    expect(api.calls).toContainEqual({
+      method: 'POST',
+      path: '/session/ses_1/question/q3/reject',
+      body: {},
+    });
+    await agent.dispose();
+  });
+});

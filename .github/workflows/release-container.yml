@@ -55,7 +55,9 @@ jobs:
         run: |
           set -euo pipefail
           pi="$(npm view @earendil-works/pi-coding-agent version)"
-          opencode="$(gh api repos/sst/opencode/releases/latest --jq .tag_name)"
+          # `releases/latest` still points at the 1.x line: take the newest
+          # stable v2 tag instead, so release images always ship current 2.x.
+          opencode="$(gh api repos/sst/opencode/releases --paginate --jq -r '.[] | select(.prerelease == false and .draft == false) | .tag_name' | grep -E '^v2\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
           if [[ ! "$pi" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "::error::Could not resolve a released pi version (got: $pi)."
             exit 1

@@ -27,6 +27,8 @@ import { listCommands, parseCommandFile } from './internal/opencode-prompts-conf
 export interface ApiSessionInfo {
   id: string;
   title?: string;
+  /** The server's own version (`1.19.6`, `2.4.2`, …); only the list carries it. */
+  version?: string;
   agent?: string;
   model?: { id: string; providerID: string; variant?: string };
   cost?: number;
@@ -62,6 +64,23 @@ interface ApiSkill {
   id?: string;
   name?: string;
   description?: string;
+}
+
+/**
+ * Which OpenCode wire the server speaks, from its version string. 1.x wraps a
+ * prompt in `{prompt}`, lists forms as `questions`, and streams `message.*`
+ * events; 2.x sends a bare `{text}`, `form.*`, and `session.execution.*`.
+ * Unknown (or absent) versions stay on the 2.x wire: that is today's behavior,
+ * so a server that hides its version changes nothing.
+ */
+export function engineMajorOf(version: unknown): 1 | 2 {
+  if (typeof version === 'string') {
+    const major = version.trim().replace(/^v/i, '').split('.')[0];
+    if (major === '1') {
+      return 1;
+    }
+  }
+  return 2;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   messageEntries,
+  normalizeSessionMessages,
   sessionCountsOf,
   sessionSpeedOf,
   toUserMessages,
@@ -241,5 +242,73 @@ describe('message mapping', () => {
       slowestTokensPerSecond: 50,
     });
     expect(sessionSpeedOf([ASSISTANT_TEXT])).toBeUndefined();
+  });
+});
+
+describe('1.x history normalization', () => {
+  it('passes 2.x rows through untouched', () => {
+    const rows = [{ id: 'm1', type: 'user', text: 'hi' }];
+    expect(normalizeSessionMessages(rows, 2)).toBe(rows);
+  });
+
+  it('converts 1.x info/parts rows and drops bookkeeping', () => {
+    const rows = normalizeSessionMessages(
+      [
+        { id: 'sys', time: { created: 1 }, type: 'agent-switched', agent: 'build' },
+        {
+          info: {
+            id: 'msg1',
+            sessionID: 's',
+            role: 'user',
+            time: { created: 2 },
+            agent: 'build',
+            model: { providerID: 'p', modelID: 'm' },
+          },
+          parts: [{ id: 'p1', type: 'text', text: 'count the files' }],
+        },
+        {
+          info: {
+            id: 'msg2',
+            sessionID: 's',
+            role: 'assistant',
+            time: { created: 3, completed: 4 },
+            agent: 'build',
+            model: { providerID: 'p', modelID: 'm' },
+          },
+          parts: [
+            { id: 'p2', type: 'reasoning', text: 'thinking' },
+            { id: 'p3', type: 'text', text: '42' },
+            {
+              id: 'p4',
+              type: 'tool',
+              callID: 'call1',
+              tool: 'shell',
+              state: {
+                status: 'completed',
+                input: { command: 'ls' },
+                output: 'a\nb\n',
+                metadata: { status: 'completed' },
+              },
+            },
+          ],
+        },
+      ],
+      1,
+    );
+    expect(rows).toHaveLength(2);
+    expect(toUserMessages(rows)).toEqual([{ entryId: 'msg1', text: 'count the files' }]);
+    const entries = toHistoryEntries(rows);
+    expect(entries).toContainEqual(expect.objectContaining({ role: 'user', text: 'count the files' }));
+    expect(entries).toContainEqual(
+      expect.objectContaining({ role: 'assistant', text: '42', thinking: 'thinking' }),
+    );
+    expect(entries).toContainEqual(
+      expect.objectContaining({ role: 'tool', toolCallId: 'call1', status: 'ok' }),
+    );
+    expect(sessionCountsOf(rows)).toMatchObject({
+      userMessages: 1,
+      assistantMessages: 1,
+      toolCalls: 1,
+    });
   });
 });

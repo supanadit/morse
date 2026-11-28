@@ -184,6 +184,107 @@ function mapAll(events: readonly OpenCodeEvent[]): {
   return { events: mapped, states };
 }
 
+describe('OpenCodeEventMapper 1.x wire', () => {
+  it('opens the run on step-start and streams deltas by part kind', () => {
+    const mapper = new OpenCodeEventMapper();
+    const start = mapper.map(
+      event('message.part.updated', {
+        part: { id: 'p1', sessionID: 's', messageID: 'm', type: 'reasoning' },
+      }),
+    );
+    expect(start.events).toEqual([{ type: 'agent/run-start', at: 1_000 }]);
+    expect(start.state).toEqual({ streaming: true });
+
+    const delta = mapper.map(
+      event('message.part.delta', { partID: 'p1', messageID: 'm', field: 'text', delta: 'hmm' }),
+    );
+    expect(delta.events).toContainEqual({
+      type: 'agent/delta',
+      at: 1_000,
+      channel: 'thinking',
+      delta: 'hmm',
+    });
+
+    const finish = mapper.map(
+      event('message.part.updated', {
+        part: {
+          id: 'p2',
+          sessionID: 's',
+          messageID: 'm',
+          type: 'step-finish',
+          reason: 'stop',
+          tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+      }),
+    );
+    expect(finish.events).toContainEqual({
+      type: 'agent/message',
+      at: 1_000,
+      text: '',
+      thinking: 'hmm',
+    });
+    expect(finish.events).toContainEqual({ type: 'agent/run-end', at: 1_000, reason: 'settled' });
+    expect(finish.state).toMatchObject({ streaming: false });
+  });
+
+  it('ends the run when the assistant message completes', () => {
+    const mapper = new OpenCodeEventMapper();
+    mapper.map(
+      event('message.part.updated', {
+        part: { id: 'p1', sessionID: 's', messageID: 'm', type: 'step-start' },
+      }),
+    );
+    const done = mapper.map(
+      event('message.updated', {
+        info: {
+          id: 'm',
+          sessionID: 's',
+          role: 'assistant',
+          time: { created: 1, completed: 2 },
+          agent: 'build',
+          model: { providerID: 'prov', modelID: 'mod' },
+        },
+      }),
+    );
+    expect(done.events).toContainEqual({ type: 'agent/run-end', at: 1_000, reason: 'settled' });
+    expect(done.state).toMatchObject({ model: { provider: 'prov', id: 'mod' }, mode: 'build' });
+  });
+
+  it('turns a 1.x question into an answerable interaction', () => {
+    const mapper = new OpenCodeEventMapper();
+    const mapped = mapper.map(
+      event('question.asked', {
+        id: 'q1',
+        sessionID: 's',
+        questions: [{ question: 'Pick', options: [{ label: 'a' }] }],
+      }),
+    );
+    expect(mapped.events).toHaveLength(1);
+    expect(mapped.events[0]?.type).toBe('agent/interaction');
+  });
+
+  it('reports a session error as a failed run', () => {
+    const mapper = new OpenCodeEventMapper();
+    mapper.map(
+      event('message.part.updated', {
+        part: { id: 'p1', sessionID: 's', messageID: 'm', type: 'step-start' },
+      }),
+    );
+    const failed = mapper.map(
+      event('session.error', {
+        sessionID: 's',
+        error: { name: 'ProviderAuthError', data: { message: 'no key', providerID: 'p' } },
+      }),
+    );
+    expect(failed.events).toContainEqual({ type: 'agent/run-end', at: 1_000, reason: 'error' });
+    expect(
+      failed.events.some(
+        (entry) => entry.type === 'agent/notice' && entry.level === 'error',
+      ),
+    ).toBe(true);
+  });
+});
+
 describe('OpenCodeEventMapper forms', () => {
   it('ignores form shells with no usable fields instead of crashing the host', () => {
     const mapper = new OpenCodeEventMapper();

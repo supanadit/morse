@@ -47,6 +47,7 @@ import type { OpenCodeEvent, OpenCodeEventStream } from './internal/event-stream
 import {
   asRecord,
   asString,
+  engineMajorOf,
   extensionOf,
   initialStateOf,
   readAvailableCommands,
@@ -67,6 +68,7 @@ import {
   type ApiModel,
 } from './internal/model-mapping.js';
 import {
+  normalizeSessionMessages,
   toUserMessages,
   toHistoryEntries,
   sessionCountsOf,
@@ -74,10 +76,13 @@ import {
   type ApiMessage,
 } from './internal/message-mapping.js';
 import {
+  questionAnswers,
   toFormRequest,
   toPermissionRequest,
+  toQuestionRequest,
   type ApiForm,
   type ApiPermissionRequest,
+  type ApiQuestion,
 } from './internal/form-mapping.js';
 
 const CHILD_RECONCILE_MS = 5_000;
@@ -135,6 +140,12 @@ export interface OpenCodeAgentOptions {
   logger: MorseLogger;
   /** Attach to a persisted engine session instead of creating one. */
   sessionId?: string;
+  /**
+   * The wire the server speaks, resolved once per engine from its version.
+   * Absent, `open` probes the session list; 2 is the default, so a server
+   * that hides its version changes nothing.
+   */
+  engineMajor?: 1 | 2;
   /** The mode a newly created session should start in. Ignored when attaching. */
   mode?: string;
   /**
@@ -149,6 +160,33 @@ export interface OpenCodeAgentOptions {
    * progress.
    */
   guard?: OpenCodeConfigGuard;
+}
+
+/**
+ * Which wire the server speaks. The session record itself carries no version,
+ * but the list does — every row shares the server's version, so the first
+ * row that names one decides. Absent or unreadable, assume 2: that is today's
+ * behavior, so a server that hides its version changes nothing.
+ */
+async function probeEngineMajor(api: OpenCodeApi, session: ApiSessionInfo): Promise<1 | 2> {
+  if (engineMajorOf(session.version) === 1) {
+    return 1;
+  }
+  try {
+    const page = await api.page<{ version?: unknown }>('/session', { limit: '10' });
+    for (const row of page.data) {
+      const major = engineMajorOf(row.version);
+      if (major === 1) {
+        return 1;
+      }
+      if (typeof row.version === 'string' && row.version.length > 0) {
+        return 2;
+      }
+    }
+  } catch {
+    // A list the server will not give still leaves the default wire.
+  }
+  return 2;
 }
 
 export class OpenCodeAgent extends Session {
@@ -184,6 +222,10 @@ export class OpenCodeAgent extends Session {
   private readonly announced = new Set<string>();
   /** What kind of thing each pending request is, so a reply goes to its endpoint. */
   private readonly pending = new Map<string, 'form' | 'permission'>();
+  /** The 1.x questions behind pending form requests, to answer in order. */
+  private readonly questions = new Map<string, ApiQuestion>();
+  /** Which wire the server speaks: 1 wraps prompts, asks `question`s. */
+  private readonly engineMajor: 1 | 2;
   /** A pending-interaction poll in flight. */
   private syncing: Promise<void> | undefined;
 
@@ -198,6 +240,7 @@ export class OpenCodeAgent extends Session {
     this.log = options.logger;
     this.configDir = options.configDir;
     this.guard = options.guard;
+    this.engineMajor = options.engineMajor ?? engineMajorOf(session.version);
     this.engineId = session.id;
     // Opened while the engine was still running it (a background subagent the
     // reader clicked into): the start event is gone, so the run is taken as in
@@ -266,6 +309,10 @@ export class OpenCodeAgent extends Session {
     if (session === undefined || typeof session.id !== 'string' || session.id.length === 0) {
       throw new AgentUnavailableError('OpenCode did not return a session id.');
     }
+    // The record of a created or attached session carries no version; the
+    // list does. One bounded read per session open, so a 1.x server gets the
+    // 1.x wire even though every other call looks the same.
+    const engineMajor = options.engineMajor ?? (await probeEngineMajor(options.api, session));
 
     // The catalog is a nicety: a server that cannot answer it still serves the
     // conversation, so a failure degrades the pickers instead of the session.
@@ -307,7 +354,7 @@ export class OpenCodeAgent extends Session {
         : [...models, fallbackModel];
 
     const agent = new OpenCodeAgent(
-      options,
+      { ...options, engineMajor },
       session,
       initialStateOf(
         session,
@@ -355,7 +402,7 @@ export class OpenCodeAgent extends Session {
           ...(cursor === undefined ? {} : { cursor }),
         },
       );
-      messages.push(...result.data);
+      messages.push(...normalizeSessionMessages(result.data, this.engineMajor));
       cursor = result.cursor?.next ?? undefined;
       // Stop on the first page that yields transcript content: a page of only
       // bookkeeping rows is skipped, and a page with content is the page the
@@ -387,7 +434,7 @@ export class OpenCodeAgent extends Session {
         `/session/${encodeURIComponent(this.engineId)}/message`,
         { limit: '100', ...(cursor === undefined ? {} : { cursor }) },
       );
-      messages.push(...result.data);
+      messages.push(...normalizeSessionMessages(result.data, this.engineMajor));
       cursor = result.cursor?.next ?? undefined;
       if (cursor === undefined) {
         break;
@@ -421,13 +468,17 @@ export class OpenCodeAgent extends Session {
     pins?: ChatPin[],
   ): Promise<PromptDisposition> {
     const files = await this.materializeImages(images);
+    // 1.x wraps the prompt (`{prompt: {text}}`); 2.x sends it bare. The path,
+    // the queue delivery, and the file references are the same on both.
+    const prompt = {
+      text: appendPinMentions(text, pins),
+      ...(files.length === 0 ? {} : { files }),
+    };
     const accepted = await this.api.post<{ delivery?: string }>(
       `/session/${encodeURIComponent(this.engineId)}/prompt`,
-      {
-        text: appendPinMentions(text, pins),
-        ...(files.length === 0 ? {} : { files }),
-        ...(mode === 'followUp' ? { delivery: 'queue' } : {}),
-      },
+      this.engineMajor === 1
+        ? { prompt, ...(mode === 'followUp' ? { delivery: 'queue' } : {}) }
+        : { ...prompt, ...(mode === 'followUp' ? { delivery: 'queue' } : {}) },
     );
     return accepted?.delivery === 'queue' ? 'queued' : 'started';
   }
@@ -763,7 +814,8 @@ export class OpenCodeAgent extends Session {
    * The request id is the engine's own, so a reply can only reach the request it
    * was asked for. A form carries a keyed map (the whole form at once, as the
    * server expects); a permission carries the chosen decision. Cancelling is a
-   * delete/reject, never an empty answer.
+   * delete/reject, never an empty answer. On 1.x a form is a `question`,
+   * answered with the labels in the server's order (or rejected outright).
    */
   async respondToInteraction(response: AgentInteractionResponse): Promise<void> {
     const kind = this.pending.get(response.requestId);
@@ -775,7 +827,9 @@ export class OpenCodeAgent extends Session {
     const request = encodeURIComponent(response.requestId);
     try {
       if (kind === 'form') {
-        if (response.cancelled === true) {
+        if (this.engineMajor === 1) {
+          await this.replyQuestion(session, request, response);
+        } else if (response.cancelled === true) {
           await this.api.delete(`/session/${session}/form/${request}`, {
             message: 'Cancelled in Morse.',
           });
@@ -784,6 +838,12 @@ export class OpenCodeAgent extends Session {
             answer: response.values ?? {},
           });
         }
+      } else if (this.engineMajor === 1) {
+        const reply =
+          response.cancelled === true || (response.value !== 'once' && response.value !== 'always')
+            ? 'reject'
+            : response.value;
+        await this.api.post(`/session/${session}/permission/${request}/reply`, { reply });
       } else if (response.cancelled === true) {
         await this.api.post(`/session/${session}/permission/${request}/reply`, {
           decision: 'reject',
@@ -798,6 +858,46 @@ export class OpenCodeAgent extends Session {
     } finally {
       this.announced.delete(response.requestId);
       this.pending.delete(response.requestId);
+      this.questions.delete(response.requestId);
+    }
+  }
+
+  /**
+   * Answers one 1.x question: labels in the server's order, or a rejection.
+   * The shape comes from the sync cache, or is re-read when the stream
+   * announced the question; a question that is already gone needs no reply.
+   */
+  private async replyQuestion(
+    session: string,
+    request: string,
+    response: AgentInteractionResponse,
+  ): Promise<void> {
+    if (response.cancelled === true) {
+      await this.api.post(`/session/${session}/question/${request}/reject`, {});
+      return;
+    }
+    const question =
+      this.questions.get(response.requestId) ?? (await this.questionById(response.requestId));
+    if (question === undefined) {
+      this.log.debug('Skipping a reply to a settled OpenCode question', {
+        requestId: response.requestId,
+      });
+      return;
+    }
+    await this.api.post(`/session/${session}/question/${request}/reply`, {
+      answers: questionAnswers(question, response.values),
+    });
+  }
+
+  /** The pending 1.x question behind an event-announced request, if still open. */
+  private async questionById(requestId: string): Promise<ApiQuestion | undefined> {
+    try {
+      const questions = await this.api.get<ApiQuestion[]>(
+        `/session/${encodeURIComponent(this.engineId)}/question`,
+      );
+      return (Array.isArray(questions) ? questions : []).find((question) => question?.id === requestId);
+    } catch {
+      return undefined;
     }
   }
 
@@ -857,8 +957,35 @@ export class OpenCodeAgent extends Session {
         if (active === undefined || this.disposed) {
           return;
         }
+        // 1.x envelopes the table (`{data: {...}}`); read through either shape,
+        // and a bare list of rows, so a child missing from all of them still
+        // settles instead of waiting on an event that may never come.
+        const table =
+          typeof active === 'object' &&
+          active !== null &&
+          !Array.isArray(active) &&
+          'data' in active
+            ? (active as Record<string, unknown>)['data']
+            : active;
+        const live =
+          table instanceof Array
+            ? new Set(
+                table.map((row) =>
+                  asString(
+                    typeof row === 'object' && row !== null
+                      ? (row as Record<string, unknown>)['id'] ??
+                          (row as Record<string, unknown>)['sessionID']
+                      : undefined,
+                  ),
+                ),
+              )
+            : new Set(
+                typeof table === 'object' && table !== null && !Array.isArray(table)
+                  ? Object.keys(table)
+                  : [],
+              );
         for (const id of running) {
-          if (!(id in active)) {
+          if (!live.has(id)) {
             const child = this.childRefs.get(id) ?? { sessionId: id };
             this.reportChild(child, false, Date.now());
           }
@@ -988,11 +1115,14 @@ export class OpenCodeAgent extends Session {
   /**
    * Reads the server's own pending lists and announces anything not seen yet.
    *
-   * The SSE stream is the primary source, but a form can outlive a connection (a
-   * resumed session, a dropped stream, a request created just before a step
-   * ended), so the agent polls on connect and at execution boundaries. The
-   * `announced` set makes the two sources idempotent: whichever sees a request
-   * first is the one that shows it once.
+   * The SSE stream is the primary source, but a request can outlive a
+   * connection (a resumed session, a dropped stream, a request created just
+   * before a step ended), so the agent polls on connect and at execution
+   * boundaries. The `announced` set makes the two sources idempotent:
+   * whichever sees a request first is the one that shows it once.
+   *
+   * 1.x lists typed forms as `question`s on its own endpoint; 2.x lists
+   * them as `form`s. Permissions share the endpoint on both wires.
    */
   private syncInteractions(): Promise<void> {
     if (this.disposed) {
@@ -1003,7 +1133,10 @@ export class OpenCodeAgent extends Session {
     }
     const session = encodeURIComponent(this.engineId);
     const run = Promise.all([
-      this.api.get<ApiForm[]>(`/session/${session}/form`).catch((error: unknown): ApiForm[] => {
+      (this.engineMajor === 1
+        ? this.api.get<ApiQuestion[]>(`/session/${session}/question`)
+        : this.api.get<ApiForm[]>(`/session/${session}/form`)
+      ).catch((error: unknown): ApiQuestion[] | ApiForm[] => {
         this.log.debug('Could not list OpenCode forms', { error });
         return [];
       }),
@@ -1024,14 +1157,28 @@ export class OpenCodeAgent extends Session {
         // the same shape that killed the host on `form.created`. There is
         // nothing to answer, so skip it instead of announcing an empty
         // dialog (`toFormRequest` never throws, this skips the noise too).
+        // On 1.x the same endpoint lists `question`s, answered in order.
         for (const form of Array.isArray(forms) ? forms : []) {
+          if (this.engineMajor === 1) {
+            const question = form as unknown as ApiQuestion;
+            if (typeof question?.id !== 'string' || !Array.isArray(question?.questions)) {
+              continue;
+            }
+            const request = toQuestionRequest(question);
+            if (request === undefined) {
+              continue;
+            }
+            this.questions.set(question.id, question);
+            this.announce(request, 'form');
+            continue;
+          }
           if (
             typeof (form as ApiForm | undefined)?.id !== 'string' ||
             !Array.isArray((form as ApiForm | undefined)?.fields)
           ) {
             continue;
           }
-          const request = toFormRequest(form);
+          const request = toFormRequest(form as ApiForm);
           if (request.fields.length === 0) {
             continue;
           }
@@ -1073,6 +1220,7 @@ export class OpenCodeAgent extends Session {
     }
     this.announced.delete(requestId);
     this.pending.delete(requestId);
+    this.questions.delete(requestId);
   }
 
   /** Folds one streamed event into state and the transcript. */
@@ -1151,13 +1299,17 @@ export class OpenCodeAgent extends Session {
     if (
       event.type === 'form.replied' ||
       event.type === 'form.cancelled' ||
+      event.type === 'question.replied' ||
+      event.type === 'question.rejected' ||
       event.type === 'permission.replied'
     ) {
       // Another client may have answered a request this agent is holding.
       const data = asRecord(event.data);
       this.forget(
         asString(asRecord(data['form'])?.['id']) ??
+          asString(asRecord(data['question'])?.['id']) ??
           asString(data['formID']) ??
+          asString(data['questionID']) ??
           asString(data['requestID']) ??
           asString(data['id']),
       );
@@ -1311,7 +1463,7 @@ export class OpenCodeAgent extends Session {
           ...(cursor === undefined ? {} : { cursor }),
         },
       );
-      messages.push(...result.data);
+      messages.push(...normalizeSessionMessages(result.data, this.engineMajor));
       cursor = result.cursor?.next ?? undefined;
       if (cursor === undefined) {
         break;
@@ -1355,7 +1507,10 @@ export class OpenCodeAgent extends Session {
         `/session/${encodeURIComponent(this.engineId)}/message/${encodeURIComponent(entryId)}`,
       )
       .catch(() => undefined);
-    return message?.text ?? '';
+    if (message === undefined) {
+      return '';
+    }
+    return normalizeSessionMessages([message], this.engineMajor)[0]?.text ?? '';
   }
 
   /**

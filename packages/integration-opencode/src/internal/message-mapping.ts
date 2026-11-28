@@ -150,6 +150,138 @@ export function toHistoryEntries(messages: readonly ApiMessage[]): AgentHistoryE
 }
 
 /**
+ * The stored message list into the flat shape the history readers take.
+ *
+ * 2.x already sends that shape (`{id, type, time, text, content}`). 1.x sends
+ * `{info, parts}` rows (plus flat bookkeeping rows like `agent-switched`),
+ * so those are converted: user text joined, assistant parts mapped to content
+ * entries, everything else dropped like the bookkeeping 2.x skips. A 1.x
+ * compaction boundary has no summary on the converted shape yet, so it reads
+ * as skipped bookkeeping rather than a shrunk history.
+ */
+export function normalizeSessionMessages(raw: readonly unknown[], major: 1 | 2): ApiMessage[] {
+  if (major !== 1) {
+    return raw as ApiMessage[];
+  }
+  const messages: ApiMessage[] = [];
+  for (const entry of raw) {
+    const message = normalizeV1Message(entry);
+    if (message !== undefined) {
+      messages.push(message);
+    }
+  }
+  return messages;
+}
+
+function normalizeV1Message(entry: unknown): ApiMessage | undefined {
+  const record = asRecord(entry);
+  const info = asRecord(record?.['info']);
+  if (record === undefined || info === undefined || typeof info['id'] !== 'string') {
+    // Flat bookkeeping (`agent-switched`, …): the same rows 2.x skips.
+    return undefined;
+  }
+  const parts = asArray(record['parts']) ?? [];
+  if (info['role'] === 'user') {
+    const text = parts
+      .map((part) => {
+        const item = asRecord(part);
+        return item?.['type'] === 'text' && typeof item['text'] === 'string' ? item['text'] : '';
+      })
+      .join('');
+    return {
+      id: info['id'] as string,
+      type: 'user',
+      text,
+      ...(v1Time(info) === undefined ? {} : { time: v1Time(info) }),
+    };
+  }
+  if (info['role'] === 'assistant') {
+    const content = parts.flatMap((part) => normalizeV1Part(part));
+    const model = asRecord(info['model']);
+    const modelId = model?.['modelID'] ?? model?.['id'];
+    return {
+      id: info['id'] as string,
+      type: 'assistant',
+      ...(typeof info['agent'] === 'string' ? { agent: info['agent'] } : {}),
+      ...(typeof modelId === 'string'
+        ? {
+            model: {
+              id: modelId,
+              ...(typeof model?.['providerID'] === 'string'
+                ? { providerID: model?.['providerID'] as string }
+                : {}),
+            },
+          }
+        : {}),
+      ...(content.length === 0 ? {} : { content }),
+      ...(v1Time(info) === undefined ? {} : { time: v1Time(info) }),
+      ...(asRecord(info['error']) === undefined ? {} : { error: info['error'] }),
+    };
+  }
+  return undefined;
+}
+
+function v1Time(
+  info: Record<string, unknown>,
+): { created?: number; completed?: number } | undefined {
+  const time = asRecord(info['time']);
+  const created = asNumber(time?.['created']);
+  const completed = asNumber(time?.['completed']);
+  if (created === undefined && completed === undefined) {
+    return undefined;
+  }
+  return {
+    ...(created === undefined ? {} : { created }),
+    ...(completed === undefined ? {} : { completed }),
+  };
+}
+
+function normalizeV1Part(part: unknown): ApiContentPart[] {
+  const item = asRecord(part);
+  if (item === undefined || typeof item['type'] !== 'string') {
+    return [];
+  }
+  switch (item['type']) {
+    case 'text':
+      return typeof item['text'] === 'string' ? [{ type: 'text', text: item['text'] }] : [];
+    case 'reasoning':
+      return typeof item['text'] === 'string' ? [{ type: 'reasoning', text: item['text'] }] : [];
+    case 'tool': {
+      if (typeof item['callID'] !== 'string') {
+        return [];
+      }
+      const state = asRecord(item['state']);
+      const status = state?.['status'];
+      const input = asRecord(state?.['input']);
+      const output = typeof state?.['output'] === 'string' ? (state?.['output'] as string) : undefined;
+      const error = typeof state?.['error'] === 'string' ? (state?.['error'] as string) : undefined;
+      const metadata = asRecord(state?.['metadata']);
+      return [
+        {
+          type: 'tool',
+          id: item['callID'] as string,
+          ...(typeof item['tool'] === 'string' ? { name: item['tool'] as string } : {}),
+          state: {
+            ...(typeof status === 'string' ? { status } : {}),
+            ...(input === undefined ? {} : { input }),
+            // A failed tool carries its error where 2.x carries output, so
+            // the transcript row shows it instead of an empty result.
+            ...(output === undefined && error === undefined
+              ? {}
+              : { content: [{ type: 'text', text: (output ?? error) as string }] }),
+            ...(metadata === undefined ? {} : { metadata }),
+          },
+        },
+      ];
+    }
+    default:
+      // `step-start`/`step-finish`, snapshots, patches, files: run framing
+      // the event stream reports, not transcript content.
+      return [];
+  }
+}
+
+/**
  * Every user message the session holds, in conversation order.
  *
  * The newest-first page is reversed once for the whole list, so the caller sees

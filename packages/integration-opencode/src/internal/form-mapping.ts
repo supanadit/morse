@@ -51,14 +51,39 @@ export interface ApiForm {
   fields: ApiFormField[];
 }
 
-/** The permission request recorded from a 2.1.4 server. */
+/** The permission request shape both wires send. 2.x names the action
+ * `action` with `resources`; 1.x names it `permission` with `patterns`. */
 export interface ApiPermissionRequest {
   id: string;
   sessionID: string;
-  action: string;
+  action?: string;
+  permission?: string;
   resources?: string[];
+  patterns?: string[];
   message?: string;
   metadata?: Record<string, unknown>;
+}
+
+/** One 1.x question option: the label is the answer the server matches on. */
+export interface ApiQuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** One 1.x question: a prompt with fixed options, optionally multi and custom. */
+export interface ApiQuestionInfo {
+  question: string;
+  header?: string;
+  options?: ApiQuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+/** A 1.x `question.asked` payload: several questions answered together. */
+export interface ApiQuestion {
+  id: string;
+  sessionID?: string;
+  questions: ApiQuestionInfo[];
 }
 
 /** One OpenCode form as the frontend's multi-field request. Never throws: a
@@ -89,13 +114,16 @@ export function toFormRequest(form: ApiForm): AgentFormRequest {
   };
 }
 
-/** One OpenCode permission request as the once/always/reject choice. */
+/** One OpenCode permission request as the once/always/reject choice. Reads
+ * both wire shapes: 2.x `action`/`resources`, 1.x `permission`/`patterns`. */
 export function toPermissionRequest(request: ApiPermissionRequest): AgentSelectRequest {
-  const detail = permissionDetail(request);
+  const action = request.action ?? request.permission ?? 'permission';
+  const resources = request.resources ?? request.patterns;
+  const detail = permissionDetail({ resources, request });
   return {
     requestId: request.id,
     kind: 'select',
-    title: `Allow ${request.action}?`,
+    title: `Allow ${action}?`,
     ...(detail.length === 0 ? {} : { message: detail }),
     options: [
       { value: 'once', label: 'Allow once' },
@@ -103,6 +131,76 @@ export function toPermissionRequest(request: ApiPermissionRequest): AgentSelectR
       { value: 'reject', label: 'Reject' },
     ],
   };
+}
+
+/**
+ * One 1.x question request as a form with one field per question, so the
+ * reply can carry every answer in the server's order. A single question is
+ * still a form (not a select): the reply path stays one shape, and a custom
+ * answer rides along as an optional text field merged after the picked labels.
+ * Returns `undefined` when there is nothing answerable (no usable options).
+ */
+export function toQuestionRequest(question: ApiQuestion): AgentFormRequest | undefined {
+  const infos = Array.isArray(question.questions)
+    ? question.questions.filter(
+        (info): info is ApiQuestionInfo =>
+          typeof info === 'object' &&
+          info !== null &&
+          typeof info.question === 'string' &&
+          Array.isArray(info.options) &&
+          info.options.length > 0,
+      )
+    : [];
+  if (infos.length === 0) {
+    return undefined;
+  }
+  const titleOf = (info: ApiQuestionInfo): string =>
+    typeof info.header === 'string' && info.header.length > 0 ? info.header : info.question;
+  return {
+    requestId: question.id,
+    kind: 'form',
+    title: infos.length === 1 ? titleOf(infos[0]!) : 'OpenCode has questions',
+    fields: infos.flatMap((info, index) => {
+      const key = `q${index}`;
+      const options = info.options!.map((option) => ({
+        value: option.label,
+        label: option.label,
+        ...(option.description === undefined ? {} : { description: option.description }),
+      }));
+      const field: AgentFormField = {
+        key,
+        label: titleOf(info),
+        type: info.multiple === true ? 'multiselect' : 'select',
+        options,
+        required: true,
+      };
+      // A custom answer rides along as an optional text field; the reply
+      // merges it after the picked labels, in the server's answer order.
+      if (info.custom === true) {
+        return [field, { key: `${key}~custom`, label: `${titleOf(info)} (custom)`, type: 'text' as const }];
+      }
+      return [field];
+    }),
+  };
+}
+
+/**
+ * A 1.x question reply in the server's answer order: one label array per
+ * question, picked labels first, then a typed custom answer when present.
+ */
+export function questionAnswers(
+  question: ApiQuestion,
+  values: Record<string, AgentFormValue> | undefined,
+): string[][] {
+  return question.questions.map((_info, index) => {
+    const value = values?.[`q${index}`];
+    const picked = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : typeof value === 'string' ? [value] : [];
+    const custom = values?.[`q${index}~custom`];
+    if (typeof custom === 'string' && custom.length > 0) {
+      return [...picked, custom];
+    }
+    return picked;
+  });
 }
 
 function toFormField(field: ApiFormField): AgentFormField {
@@ -189,10 +287,12 @@ function defaultValueOf(value: unknown): AgentFormValue | undefined {
 }
 
 /** What the permission is about, as the message under the title. */
-function permissionDetail(request: ApiPermissionRequest): string {
-  const resources = request.resources?.filter((entry) => entry.length > 0) ?? [];
-  if (resources.length > 0) {
-    return resources.join('\n');
+function permissionDetail({ resources, request }: { resources?: unknown; request: ApiPermissionRequest }): string {
+  const patterns = Array.isArray(resources)
+    ? resources.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    : [];
+  if (patterns.length > 0) {
+    return patterns.join('\n');
   }
   const command = request.metadata?.['command'];
   return typeof command === 'string' ? command : (request.message ?? '');
