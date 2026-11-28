@@ -4,7 +4,7 @@
 // Morse host attached to it (see `MORSE_OPENCODE_URL`). pi needs no server —
 // the host spawns one process per session. ezx stays PID 1 and never exec's
 // away. No shell entrypoints — this file is the entrypoint.
-const { fs, chain, log, process } = require("ezx");
+const { fs, chain, log, process, env } = require("ezx");
 const {
 	MORSE_HOME,
 	MORSE_LOGS,
@@ -77,12 +77,14 @@ function restoreOsUsers() {
 	}
 }
 
-/** The sidecar's Basic-auth secret: operator-set, or minted per boot. Nodes
- * inherit the bootstrap's environment (like every ezx process tree), so this
- * one assignment feeds both the sidecar and the host attaching to it. Only
- * `require("ezx")` modules exist here (no node: builtins), so the mint is
- * Math-based: it only guards the container-loopback sidecar. */
-
+/** The sidecar's Basic-auth secret, single-sourced: the operator's
+ * `MORSE_OPENCODE_PASSWORD` feeds both the sidecar (`OPENCODE_SERVER_PASSWORD`)
+ * and the host attaching to it, so the two can never disagree. 1.x ignored
+ * server passwords entirely, which is why a missing link went unnoticed;
+ * 2.x enforces it and rejects a host holding any other value. */
+function sidecarSecret() {
+	return env.get("MORSE_OPENCODE_PASSWORD", "");
+}
 
 function probe(url, maxAttempts) {
 	return {
@@ -101,13 +103,15 @@ function probe(url, maxAttempts) {
 function opencodeNode() {
 	const node = {
 		name: "opencode",
-		// OPENCODE_SERVER_PASSWORD is inherited from the container environment
-		// (required — see validation): same value the host attaches with.
 		process: {
 			binaryPath: MORSE_OPENCODE_BIN,
 			arguments: ["serve", "--hostname", "127.0.0.1", "--port", String(OPENCODE_PORT)],
 			user: APP_USER,
 			group: APP_GROUP,
+			// Explicit, not inherited: the quadlet only sets the Morse-side
+			// secret, so without this the sidecar enforces whatever the
+			// image (or a minted default) gave it instead.
+			environment: ["OPENCODE_SERVER_PASSWORD=" + sidecarSecret()],
 		},
 		files: [],
 		forwardSignals: ["SIGTERM", "SIGINT"],
