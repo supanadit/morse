@@ -88,6 +88,9 @@ export class ComposerHub {
   /** Sessions whose context rewrite is in flight; their queues wait for it. */
   private readonly compacting = new Set<string>();
   private readonly listeners = new Set<(message: HostToClientMessage) => void>();
+  /** Controllers mirror these into their per-connection busy flags, so a queued
+   * compaction lights the same Working indicator the dialog's yes does. */
+  private readonly compactingListeners = new Set<(sessionKey: string, active: boolean) => void>();
 
   constructor(private readonly options: ComposerHubOptions) {
     this.load();
@@ -101,6 +104,18 @@ export class ComposerHub {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * A compaction started or ended in the queue (a drained item, or the
+   * dialog's yes mirrored back here). Controllers keep their own per-view
+   * busy flags, and this is how they learn about rewrites they did not start.
+   */
+  subscribeCompacting(listener: (sessionKey: string, active: boolean) => void): () => void {
+    this.compactingListeners.add(listener);
+    return () => {
+      this.compactingListeners.delete(listener);
     };
   }
 
@@ -188,10 +203,19 @@ export class ComposerHub {
    */
   setCompacting(sessionKey: string, active: boolean): void {
     if (active) {
+      if (this.compacting.has(sessionKey)) {
+        return;
+      }
       this.compacting.add(sessionKey);
+      for (const listener of this.compactingListeners) {
+        listener(sessionKey, true);
+      }
       return;
     }
     if (this.compacting.delete(sessionKey)) {
+      for (const listener of this.compactingListeners) {
+        listener(sessionKey, false);
+      }
       // The rewrite's own run-end may have come before it was marked busy, so
       // nothing else will wake a queue that was held back until now.
       void this.drain(sessionKey);
@@ -369,7 +393,15 @@ export class ComposerHub {
   ): Promise<'sent' | 'wait' | 'failed'> {
     try {
       if (item.compaction !== undefined) {
-        await this.options.chat.compact(item.compaction.instructions, sessionKey);
+        // A rewrite owns the session exactly like the dialog's yes does: the
+        // flags gate queued sends and light the Working indicator, and the
+        // `finally` hands both back even when the engine refuses.
+        this.setCompacting(sessionKey, true);
+        try {
+          await this.options.chat.compact(item.compaction.instructions, sessionKey);
+        } finally {
+          this.setCompacting(sessionKey, false);
+        }
         return 'sent';
       }
       const outcome = await this.options.chat.prompt(

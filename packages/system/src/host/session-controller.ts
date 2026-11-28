@@ -219,6 +219,7 @@ export class HostSessionController {
   private detachRemovals: (() => void) | undefined;
   private detachMcpWatch: (() => void) | undefined;
   private detachInteractions: (() => void) | undefined;
+  private detachCompacting: (() => void) | undefined;
   private activeKey: string | undefined;
   /** True while the panel shows the intentional no-session draft state. */
   private isDraft = false;
@@ -355,6 +356,25 @@ export class HostSessionController {
         this.options.emit(update.message);
       }
     });
+    // A queued compaction is dispatched by the shared hub, not by this
+    // connection's `session/compact` handler: without this mirror the rewrite
+    // would run with no Working indicator, no elapsed clock, and no send
+    // gate — the session would read idle for minutes, then finish on refresh.
+    // `runCompact` sets the same flag directly; the echo back here is a no-op.
+    this.detachCompacting = this.options.services.composer?.subscribeCompacting(
+      (sessionKey, active) => {
+        if (active) {
+          if (this.compacting.has(sessionKey)) {
+            return;
+          }
+          this.compacting.add(sessionKey);
+        } else if (!this.compacting.delete(sessionKey)) {
+          return;
+        }
+        this.emitState();
+        this.publishActivity();
+      },
+    );
     this.detachRemovals = this.options.services.registry.onRemoval((key) => {
       this.interactions.forget(key);
       // A parent that leaves takes its children's running marks with it.
@@ -437,6 +457,8 @@ export class HostSessionController {
     this.detachMcpWatch = undefined;
     this.detachInteractions?.();
     this.detachInteractions = undefined;
+    this.detachCompacting?.();
+    this.detachCompacting = undefined;
     if (this.options.ownsRegistry === true) {
       await this.options.services.registry.dispose();
     }

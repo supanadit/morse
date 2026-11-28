@@ -358,6 +358,38 @@ describe('ComposerHub', () => {
     ).toBe(true);
   });
 
+  it('reports a drained compaction as busy while it runs, whatever starts it', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    const seen: [string, boolean][] = [];
+    test.hub.subscribeCompacting((sessionKey, active) => seen.push([sessionKey, active]));
+    let release: () => void = () => undefined;
+    test.compact.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    test.states.set('s1', { streaming: false });
+    test.hub.handle({
+      sessionId: 's1',
+      action: 'enqueue',
+      item: { text: 'Compact context', images: [], pins: [], compaction: {} },
+    });
+    await settle();
+
+    // Rewriting in flight: every controller learns it, so the session reads
+    // Working instead of idle.
+    expect(seen).toEqual([['s1', true]]);
+    release();
+    await settle();
+    await settle();
+    expect(seen).toEqual([
+      ['s1', true],
+      ['s1', false],
+    ]);
+  });
+
   it('treats a compaction against a closed session as a wait, not a failure', async () => {
     const test = setup();
     dir = test.dataDir;

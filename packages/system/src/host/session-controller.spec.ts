@@ -687,6 +687,7 @@ describe('HostSessionController compaction', () => {
       hold,
       composer: {
         setCompacting,
+        subscribeCompacting: () => () => undefined,
         snapshot: () => ({ states: [], drafts: [] }),
         subscribe: () => () => undefined,
       } as unknown as HostSessionServices['composer'],
@@ -702,6 +703,32 @@ describe('HostSessionController compaction', () => {
     hold.finish();
     await pending;
     expect(setCompacting).toHaveBeenLastCalledWith('sess-1', false);
+  });
+
+  it('a queued compaction the hub dispatches is busy here too', async () => {
+    // The reader scheduled the compaction, so the shared hub — not this
+    // connection's `session/compact` — runs it. Without the mirror the tab
+    // would read idle for the whole rewrite, then finish on the next refresh.
+    let notify: ((sessionKey: string, active: boolean) => void) | undefined;
+    const h = harness({
+      hold: { finish: () => {}, fail: () => {} },
+      composer: {
+        subscribeCompacting: (listener: (sessionKey: string, active: boolean) => void) => {
+          notify = listener;
+          return () => undefined;
+        },
+        snapshot: () => ({ states: [], drafts: [] }),
+        subscribe: () => () => undefined,
+      } as unknown as HostSessionServices['composer'],
+    });
+    await withOpenSession(h);
+    h.messages.length = 0;
+
+    notify?.('sess-1', true);
+    expect(lastStateOf(h.messages)).toMatchObject({ busy: true });
+
+    notify?.('sess-1', false);
+    expect(lastStateOf(h.messages)).toMatchObject({ busy: false });
   });
 
   it('a failed compaction also releases the busy state', async () => {
