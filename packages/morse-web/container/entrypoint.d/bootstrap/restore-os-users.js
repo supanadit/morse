@@ -35,7 +35,12 @@ function upsert(file, key, line) {
   const current = lines(file);
   const kept = current.filter((entry) => entry.split(':')[0] !== key);
   kept.push(line);
-  fs.writeFileSync(file, `${kept.join('\n')}\n`);
+  try {
+    fs.writeFileSync(file, `${kept.join('\n')}\n`);
+  } catch {
+    // The line itself holds a password hash: never let it reach the log.
+    throw new Error(`restore-os-users: could not write ${file}`);
+  }
 }
 
 function main() {
