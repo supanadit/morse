@@ -1,14 +1,15 @@
 # Releasing
 
-One semver tag releases **both** artifacts:
+One semver tag releases **three** artifacts:
 
 | Artifact | Where it goes |
 |---|---|
 | `morse-<version>.vsix` | GitHub Release asset, and the VS Code Marketplace (when Marketplace publishing is enabled) |
 | `@supanadit/morse-web` | npm (`npm install -g @supanadit/morse-web`) |
+| `ghcr.io/supanadit/morse/server` | GHCR, tagged `<version>` and `latest` |
 
-The tag `v<major>.<minor>.<patch>` is the single source of truth. The workflow refuses to publish if any
-manifest disagrees with it, so the version in the tag, the VSIX and the npm package can never drift.
+The tag `v<major>.<minor>.<patch>` is the single source of truth. The workflows refuse to publish if a
+manifest disagrees with it, so the version in the tag, the VSIX, the npm package and the image can never drift.
 
 ## Cut a release
 
@@ -49,7 +50,10 @@ manifest disagrees with it, so the version in the tag, the VSIX and the npm pack
    `git tag v0.2.0` would push the commit and never trigger the release. Verify with
    `git ls-remote --tags origin | grep v0.2.0`.
 
-Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+Pushing the tag starts two workflows:
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) (VSIX + npm) and
+[`.github/workflows/release-container.yml`](../.github/workflows/release-container.yml) (the image). They run
+independently, so neither registry can block the other.
 
 ## What the release workflow does
 
@@ -67,6 +71,21 @@ Pushing the tag starts [`.github/workflows/release.yml`](../.github/workflows/re
 The GitHub Release is created **after** npm and **before** the Marketplace publish, so a Marketplace failure
 never hides the npm release or the VSIX asset.
 
+## Container image
+
+[`release-container.yml`](../.github/workflows/release-container.yml) runs on the same `v*` tag. It refuses a
+tag that is not `vX.Y.Z` (or a semver pre-release) or whose `packages/morse-web/package.json` disagrees with the
+tag, then builds `packages/morse-web/container/Dockerfile` with the monorepo root as context and pushes:
+
+- `ghcr.io/supanadit/morse/server:<version>` — the pinned release
+- `ghcr.io/supanadit/morse/server:latest` — always the newest release
+
+An internal `...:buildcache` tag carries Buildx layers between releases. The job needs only the automatic
+`GITHUB_TOKEN` with `packages: write`; no PAT and no `Morse` environment secret. One-time setup: after the first
+push, set the GHCR package's visibility to **public** (Package → *Package settings* → *Change visibility*) so
+others can pull it. See the [container README](../packages/morse-web/container/README.md) for running and
+extending the image.
+
 ## Secrets and variables
 
 | Name | Kind | Where it comes from | Used for |
@@ -74,7 +93,7 @@ never hides the npm release or the VSIX asset.
 | `NPM_TOKEN` | secret | npm → Access Tokens → *Generate New Token* → **Automation** (or Granular with publish rights for `@supanadit/morse-web`) | `npm publish` |
 | `VSCE_PAT` | secret (optional) | Azure DevOps → PAT scoped to **Marketplace → Manage** | `vsce publish -p` |
 | `OVSX_PAT` | secret (optional) | open-vsx.org → Settings → Access Tokens | `ovsx publish -p` |
-| `GITHUB_TOKEN` | automatic | Provided by GitHub Actions | Creating the GitHub Release |
+| `GITHUB_TOKEN` | automatic | Provided by GitHub Actions | Creating the GitHub Release, pushing the image to GHCR |
 | `PUBLISH_MARKETPLACE` | variable (optional) | Set to `true` to enable the Marketplace step | Enabling the Marketplace step |
 | `PUBLISH_OPENVSX` | variable (optional) | Set to `true` to enable the Open VSX step | Enabling the Open VSX step |
 
@@ -150,7 +169,9 @@ npx ovsx publish --packagePath dist/morse.vsix -p <token>
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push and pull request: `check-types`,
 `lint`, `test:fast`, a full build, a `npm pack --dry-run` of the npm artifact, and the VS Code integration test
-under `xvfb-run`. To rehearse the release locally, follow
+under `xvfb-run`. CI does **not** build the container image — that happens only on a tag, so if you changed
+`packages/morse-web/container/Dockerfile`, build it locally first with the command in the
+[container README](../packages/morse-web/container/README.md#build). To rehearse the release locally, follow
 [`PACKAGING.md`](PACKAGING.md) and
 [`INSTALL.md`](INSTALL.md#32-install-from-a-local-tarball-before-it-is-on-npm).
 
@@ -169,3 +190,5 @@ under `xvfb-run`. To rehearse the release locally, follow
 | `ovsx` refuses to publish at all | no Eclipse account or Publisher Agreement for the namespace's owner (both are required on top of GitHub) |
 | A registry shows the old version right after a release | it holds a new version while it validates it — the publish steps warn instead of failing |
 | Tag pushed but no run | The tag must match `v*`; delete and re-push it (`git push origin :v0.2.0 && git push origin v0.2.0`). If `git push --follow-tags` printed no tag line, the tag is lightweight and was skipped — recreate it annotated (`git tag -a v0.2.0 -m "Morse v0.2.0"`) and push it |
+| Image publish fails with 403 | The container job needs `packages: write` (already in the workflow) and the GHCR package must allow this repo to push; check the package's *Manage access* |
+| Image exists but others cannot pull | The GHCR package is still private — set its visibility to **public** in *Package settings* |

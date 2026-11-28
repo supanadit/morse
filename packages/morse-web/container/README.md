@@ -1,8 +1,13 @@
 # Morse container (enterprise, server mode only)
 
-`localhost/morse:local`, built from [`Dockerfile`](./Dockerfile). This is the
-multi-user deployment: login-gated, Postgres-backed, one workspace per user.
-Host-native installs stay single-user; this image is the enterprise path.
+`ghcr.io/supanadit/morse/server`, built from [`Dockerfile`](./Dockerfile), or
+`localhost/morse:local` when built by hand. This is the multi-user deployment:
+login-gated, Postgres-backed, one workspace per user. Host-native installs stay
+single-user; this image is the enterprise path.
+
+Every `vX.Y.Z` tag publishes `<version>` and `latest` to GHCR via
+[`release-container.yml`](../../../.github/workflows/release-container.yml). Pin
+`<version>` for production; `latest` tracks the newest release.
 
 Methodology follows `containers/container-scripts` (multi-stage build,
 checksum-pinned everything, env-driven, ezx-supervised, non-root app).
@@ -119,3 +124,63 @@ are intentionally not bundled — but every member can install their own
 without ever asking an admin, following the upstream guides
 ([pyenv wiki](https://github.com/pyenv/pyenv/wiki)). Nothing a member builds
 touches another tree: it all lands under their own (fenced) home.
+
+## Extending the image (add your own tools)
+
+The final image is an ordinary base image: you can add tools with a child
+`Dockerfile` that starts `FROM` it. Docker reuses the parent's layers from cache
+or the registry, so only your added layers build — the parent image and this
+repo never need rebuilding, and the published tag keeps working for everyone
+else. The supervisor entrypoint is inherited untouched; adding `RUN`/`COPY`
+layers does not replace it.
+
+Two facts make this work without any changes to the parent:
+
+- **No `USER` is set.** PID 1 (`ezx`) starts as root and drops to `morse` for
+  each supervised process at run time. A child `RUN` is therefore root and can
+  `apt-get`/install binaries; do not add a `USER` back.
+- **`/usr/local/bin` is on `PATH`** for both the container processes (image
+  `ENV PATH`) and SSH login users (`/etc/profile`), so CLI tools dropped there
+  work in agent sessions *and* when a member logs in by SSH.
+
+Example — add `kubectl` and `kustomize` to a pinned parent tag:
+
+```dockerfile
+# Dockerfile.morse-tools
+FROM ghcr.io/supanadit/morse/server:X.Y.Z   # or localhost/morse:local
+
+ARG TARGETARCH
+ARG KUBECTL_VERSION=v1.32.0
+ARG KUSTOMIZE_VERSION=v5.5.0
+
+RUN set -eu; \
+    case "${TARGETARCH}" in amd64) karch=amd64 ;; arm64) karch=arm64 ;; *) exit 1 ;; esac; \
+    curl -fsSLo /usr/local/bin/kubectl \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${karch}/kubectl" && \
+    chmod +x /usr/local/bin/kubectl && \
+    curl -fsSLo /tmp/kustomize.tar.gz \
+      "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_${karch}.tar.gz" && \
+    tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize && \
+    rm /tmp/kustomize.tar.gz
+```
+
+Build it and point the quadlet at the new tag:
+
+```bash
+podman build -f Dockerfile.morse-tools -t localhost/morse:tools .   # no source context needed
+# then in ~/.config/containers/systemd/morse.container: Image=localhost/morse:tools
+```
+
+Notes:
+
+- Pin versions (and verify checksums, as the parent does) — unpinned `latest`
+  downloads make the child layer non-reproducible.
+- Tools installed this way are **global**: root-installed and available to
+  every login. Per-user config and credentials belong in each
+  `/workspaces/<username>` home. Set global env with `ENV`/the quadlet, not by
+  editing the seeded `.zshrc` (it is seeded once, then user-owned).
+- Upgrading Morse means rebuilding the child against the new parent tag — just
+  these few added layers, never a rebuild of Morse itself.
+- This covers CLI tools. Adding a *supervised service/sidecar* is a different
+  thing: the node graph lives in `entrypoint.d/bootstrap/main.js` and does need
+  a parent-image change.
