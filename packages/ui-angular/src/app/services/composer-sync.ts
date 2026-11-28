@@ -52,6 +52,23 @@ export class ComposerSync {
     });
   }
 
+  /**
+   * Queues a compaction where it belongs in the order — through the same
+   * route as a follow-up, so a shared host owns it instead of page memory
+   * (where the page drain, disabled on shared hosts, would leave it stuck).
+   */
+  enqueueCompaction(instructions: string | undefined, owner: string | undefined): void {
+    this.enqueue(
+      {
+        text: 'Compact context',
+        images: [],
+        pins: [],
+        compaction: instructions === undefined ? {} : { instructions },
+      },
+      owner,
+    );
+  }
+
   /** Queues a follow-up: a host request, or the local store on a single-client host. */
   enqueue(prompt: NewQueuedPrompt, owner: string | undefined): void {
     if (this.isShared(owner)) {

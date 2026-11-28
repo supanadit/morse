@@ -55,7 +55,6 @@ import { NotificationPrefs } from '../state/notification-prefs';
 import { PanelState } from '../state/panel-state';
 import { ModePrefs, type ShellMode } from '../state/mode-prefs';
 import { RestoreState } from '../state/restore-state';
-import { QueuedPrompts } from '../state/queued-prompts';
 import { ShellState, type LeftPane } from '../state/shell-state';
 import { WorkspaceTabs, type WorkspaceTab } from '../state/workspace-tabs';
 import { WorkbenchPersistence } from '../services/workbench-persistence';
@@ -236,7 +235,7 @@ export class App {
   private readonly layout = inject(LayoutState);
   private readonly panel = inject(PanelState);
   protected readonly tabs = inject(WorkspaceTabs);
-  private readonly queue = inject(QueuedPrompts);
+  private readonly sync = inject(ComposerSync);
   private readonly notifier = inject(RunNotifier);
   /** The tab icon and title follow the unread dots; constructed once with the shell. */
   private readonly favicon = inject(FaviconBadge);
@@ -1307,7 +1306,7 @@ export class App {
     const instructions = this.shell.compactInstructions();
     const sessionKey = this.shell.compactSessionKey() ?? this.tabs.composerKey();
     this.shell.closeCompactPrompt();
-    this.queue.enqueueCompaction(instructions, sessionKey);
+    this.sync.enqueueCompaction(instructions, sessionKey);
   }
 
   /**

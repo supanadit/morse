@@ -101,4 +101,30 @@ describe('ComposerSync', () => {
     expect(local.morse.composerQueue).not.toHaveBeenCalled();
     expect(local.queue.forOwner('s1').map((item) => item.text)).toEqual(['next']);
   });
+
+  it('routes a queued compaction through the host when shared', () => {
+    const shared = setup(true);
+    shared.sync.enqueueCompaction('keep the schema', 's1');
+    expect(shared.morse.composerQueue).toHaveBeenCalledWith({
+      sessionId: 's1',
+      action: 'enqueue',
+      item: {
+        text: 'Compact context',
+        images: [],
+        pins: [],
+        compaction: { instructions: 'keep the schema' },
+      },
+    });
+    // Nothing lingers in page memory: the page drain is off on shared hosts.
+    expect(shared.queue.forOwner('s1')).toEqual([]);
+
+    TestBed.resetTestingModule();
+    const local = setup(false);
+    local.sync.enqueueCompaction('keep the schema', 's1');
+    expect(local.morse.composerQueue).not.toHaveBeenCalled();
+    expect(local.queue.forOwner('s1').map((item) => item.text)).toEqual(['Compact context']);
+    expect(local.queue.forOwner('s1')[0]?.compaction).toEqual({
+      instructions: 'keep the schema',
+    });
+  });
 });
