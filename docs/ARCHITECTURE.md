@@ -435,12 +435,14 @@ highlight and Enter.
   they would mean what a plain line already does. The host already expanded them in `parseMentions`, so the list
   is the only new part.
 - A bot's reply is routed the same way (`replyAddressedBots` in `packages/system/src/bot/bus.ts`): a group
-  reply that names a member by handle **asks** it, so the room reads as one line from the asker and then the
+  or thread reply that names a member by handle **asks** it, so the room reads as one line from the asker and then the
   teammate's answer — never a relay line *and* a summary from the same bot. Only a reply that settled normally
   asks (a stopped or failed turn asks nobody); a teammate that names the asker back asks it in
   turn, so two bots go back and forth until one replies without a name — bots talk as long as they
-  like and a person stops them; `@all` is left to people. `bot_send` is for a bot **not** in the room: in a group it refuses and points at the
-  mention, so the bot learns the habit inside the turn.
+  like and a person stops them; `@all` is left to people. `bot_send` is for a bot **not** in the room: in a group or
+  thread it refuses and points at the mention, so the bot learns the habit inside the turn. In a thread, only a
+  reply that names nobody is handed back to the room that asked — it is the thread's answer; one that names a
+  teammate keeps the exchange in the thread.
 
 ### Model limits are the reader's to state
 
