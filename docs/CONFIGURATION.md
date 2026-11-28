@@ -30,7 +30,7 @@ The NestJS host and the `morse` CLI are configured through the environment:
 | `MORSE_HOME` | `~/.morse` | Data directory: CLI state, pidfile, logs, Morse's session index (`sessions/`), the saved shell layout (`workbench.json`), the per-tab composer drafts (`drafts.json`) and the terminal scrollback (`terminals/`) |
 | `MORSE_WORKSPACE` | current directory | Directory the agent works in |
 | `MORSE_PROJECTS` | unset | Roots the agent may open, e.g. `/a:/b` |
-| `MORSE_AUTH_PASSWORD` | unset | When set, every browser-facing route needs this password over HTTP Basic (the browser shows its native login prompt; the WebSocket upgrade reuses the same credentials). The CLI health probe and the bot bus stay open — the latter has its own loopback + token check |
+| `MORSE_AUTH_PASSWORD` | unset | When set, every browser-facing data route needs this password: the bundle loads openly and the shared login page gates it (username field only when `MORSE_AUTH_USERNAME` is set), a successful login mints an HttpOnly cookie, and plain HTTP Basic keeps working beside it for scripts and `curl -u`. The CLI health probe and the bot bus stay open — the latter has its own loopback + token check |
 | `MORSE_AUTH_USERNAME` | unset | Optional user name required alongside `MORSE_AUTH_PASSWORD`; unset means any user name is accepted and the password alone gates |
 | `MORSE_OIDC_ENABLED` | disabled | Turns on the optional generic OIDC/OAuth2 door (`1`/`true`/`on`/`yes`). Any `MORSE_OIDC_*` knob makes the provider env-managed: the admin settings page stays visible but read-only. With none set, an admin configures the same provider on the settings page instead |
 | `MORSE_OIDC_DISPLAY_NAME` | `Single sign-on` | Label of the login page's SSO button |

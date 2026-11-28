@@ -2,18 +2,28 @@ import { Injectable, signal } from '@angular/core';
 import type { AuthUser } from '@morse/protocol';
 
 /**
- * Login state for multi-user hosts. Inert everywhere else: the status fetch
- * 404s (or fails) on single-user hosts, the mock transport and VS Code, and
- * this stays `{ multiuser: false }` — the shell renders exactly as before.
+ * Login state for gated hosts. Multi-user reads the login cookie (see the
+ * controller); single-password hosts read the `singleAuth` gate instead.
+ * Inert everywhere else: the status fetch 404s (or fails) on the mock
+ * transport and VS Code, and this stays `{ multiuser: false }` — the shell
+ * renders exactly as before.
  *
  * After a successful login or setup the page reloads: the cookie the server
  * set replays on the WebSocket upgrade, so the new connection authenticates
  * with no state-machine surgery in the client.
  */
+export interface SingleAuthStatus {
+  /** A user name is required beside the password (`MORSE_AUTH_USERNAME`). */
+  usernameRequired: boolean;
+  /** The request already carries a valid credential (cookie or Basic). */
+  authed: boolean;
+}
 export interface AuthStatus {
   multiuser: boolean;
   setupRequired: boolean;
   user?: AuthUser;
+  /** Present on single-password hosts: the shared page's other mode. */
+  singleAuth?: SingleAuthStatus;
   /** Present when an SSO provider is enabled and usable: the login page's second door. */
   oidc?: { enabled: boolean; displayName: string; allowPassword: boolean };
 }
@@ -44,11 +54,22 @@ export class AuthState {
   /** True once we know the shell must step aside for login/setup. */
   needsAuth(): boolean {
     const status = this.status();
-    return status !== null && status.multiuser && status.user === undefined;
+    if (status === null) {
+      return false;
+    }
+    if (status.multiuser) {
+      return status.user === undefined;
+    }
+    return status.singleAuth !== undefined && !status.singleAuth.authed;
   }
 
   async login(username: string, password: string): Promise<boolean> {
     return this.post('/api/auth/login', { username, password });
+  }
+
+  /** Single-password hosts: verifies against `MORSE_AUTH_PASSWORD` and mints the cookie. */
+  async singleLogin(username: string, password: string): Promise<boolean> {
+    return this.post('/api/auth/single-login', { username, password });
   }
 
   async setup(

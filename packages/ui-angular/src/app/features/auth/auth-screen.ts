@@ -3,9 +3,11 @@ import { FormsModule } from '@angular/forms';
 import { AuthState } from '../../host/auth-state';
 
 /**
- * The login / first-run gate for multi-user hosts. Rendered full-page while
- * the shell steps aside (see `app.html`): login when users exist, the
- * create-first-admin wizard when the table is empty.
+ * The login / first-run gate for gated hosts, rendered full-page while the
+ * shell steps aside (see `app.html`): multi-user login when users exist, the
+ * create-first-admin wizard when the table is empty, and the single-password
+ * gate (`MORSE_AUTH_PASSWORD`, username only with `MORSE_AUTH_USERNAME`)
+ * otherwise. One page, one style; the mode only decides which fields show.
  *
  * The layout follows the product reference — a photo panel on the left, the
  * form on the right — skinned in Morse's own CSS variables.
@@ -22,6 +24,13 @@ export class AuthScreen {
   private readonly auth = inject(AuthState);
 
   protected readonly setupRequired = computed(() => this.auth.status()?.setupRequired === true);
+  /** Single-password gate, when the host runs one instead of multi-user. */
+  protected readonly singleAuth = computed(() => this.auth.status()?.singleAuth ?? null);
+  /** The username field shows everywhere except password-only single mode. */
+  protected readonly showUsername = computed(() => {
+    const single = this.singleAuth();
+    return single === null || single.usernameRequired;
+  });
   protected readonly ssoName = computed(() => this.auth.status()?.oidc?.displayName ?? null);
   /** SSO is the only door: the local form stays hidden (server refuses it too). */
   protected readonly ssoOnly = computed(
@@ -36,11 +45,27 @@ export class AuthScreen {
   protected readonly showPassword = signal(false);
 
   protected canSubmit(): boolean {
-    return this.username().trim().length > 0 && this.password().length >= 8 && !this.working();
+    if (this.working()) {
+      return false;
+    }
+    const single = this.singleAuth();
+    if (single !== null) {
+      // An env password has no length policy: any non-empty attempt is submittable.
+      return (
+        this.password().length > 0 && (!single.usernameRequired || this.username().trim().length > 0)
+      );
+    }
+    return this.username().trim().length > 0 && this.password().length >= 8;
   }
 
   protected async submit(): Promise<void> {
     if (!this.canSubmit()) {
+      return;
+    }
+    if (this.singleAuth() !== null) {
+      await this.auth.singleLogin(this.username().trim(), this.password());
+      // Success reloads the page (the cookie authenticates the new connection);
+      // failure leaves the error signal for the form to render.
       return;
     }
     const username = this.username().trim();

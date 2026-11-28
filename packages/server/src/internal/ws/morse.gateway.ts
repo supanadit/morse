@@ -66,12 +66,14 @@ export class MorseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.serve(client, request, { user });
       return;
     }
-    // Browsers replay the Basic credentials from the page load on a same-origin
-    // upgrade; anything that arrives without them never reaches a session.
+    // Browsers replay the login cookie (or the Basic credentials) from the
+    // page load on a same-origin upgrade. No valid credential means no
+    // session — 4401 tells the frontend to show the shared login page instead
+    // of retrying.
     if (this.config.authPassword !== undefined &&
         (request === undefined ||
          !isAuthorized(request, this.config.authPassword, this.config.authUsername))) {
-      client.close(1008, 'unauthorized');
+      client.close(LOGIN_REQUIRED_CLOSE_CODE, 'login required');
       return;
     }
     this.serve(client, request, {});

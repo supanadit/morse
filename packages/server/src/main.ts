@@ -73,8 +73,10 @@ async function bootstrap(): Promise<void> {
   const config = app.get<MorseServerConfig>(MORSE_CONFIG);
 
   app.useWebSocketAdapter(new WsAdapter(app));
-  // Gate every browser-facing route (frontend, /api, /ws upgrade) behind HTTP
-  // Basic auth when MORSE_AUTH_PASSWORD is set; health and the bot bus stay open.
+  // Gate every browser-facing data route (/api, /ws upgrade) when
+  // MORSE_AUTH_PASSWORD is set: the static bundle and the auth exchange stay
+  // open so the shared login page can render, and a login cookie (or plain
+  // HTTP Basic) passes the rest. Health and the bot bus stay open.
   // Multi-user hosts skip this gate: the login form (cookie + /api/auth) owns
   // identity there, and the static login page must load unauthenticated.
   if (!config.multiuser) {

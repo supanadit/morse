@@ -159,8 +159,9 @@ export class App {
   protected readonly auth = inject(AuthState);
   private readonly modePrefs = inject(ModePrefs);
   /**
-   * The shell steps aside for login while the host has no user for this
-   * connection (multi-user only; single-user hosts never set it).
+   * The shell steps aside for login while the host has no credential for this
+   * connection: multi-user without a login user, or a single-password gate
+   * without its cookie.
    */
   protected readonly needsAuth = computed(() => this.auth.needsAuth());
   protected readonly authLoading = computed(() => this.auth.status() === null);

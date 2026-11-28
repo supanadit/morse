@@ -55,6 +55,7 @@
             />
           </label>
         }
+        @if (showUsername()) {
         <label class="field">
           <span>Username</span>
           <input
@@ -66,6 +67,7 @@
             (ngModelChange)="username.set($event)"
           />
         </label>
+        }
         <label class="field">
           <span>Password</span>
           <div class="password-row">
@@ -88,7 +90,9 @@
             </button>
           </div>
         </label>
-        <p class="hint">Must be at least 8 characters.</p>
+        @if (singleAuth() === null) {
+          <p class="hint">Must be at least 8 characters.</p>
+        }
         @if (error(); as message) {
           <p class="error" role="alert">{{ message }}</p>
         }

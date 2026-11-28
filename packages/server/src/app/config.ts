@@ -79,11 +79,13 @@ export interface MorseServerConfig {
    */
   workspaceRoot?: string;
   /**
-   * Password protecting every browser-facing route with HTTP Basic auth
-   * (`MORSE_AUTH_PASSWORD`). Undefined means no gate: the default loopback host
-   * needs none, and a LAN-exposed host opts in deliberately. The CLI health
-   * probe and the bot bus (which carries its own peer + bearer check) stay open
-   * so `morse stop` and bot engines keep working untouched.
+   * Password protecting every browser-facing data route with the shared
+   * login page (`MORSE_AUTH_PASSWORD`). Undefined means no gate: the default
+   * loopback host needs none, and a LAN-exposed host opts in deliberately.
+   * The bundle loads openly so the page can render; a successful login mints
+   * a cookie, and plain HTTP Basic keeps working beside it for scripts. The
+   * CLI health probe and the bot bus (which carries its own peer + bearer
+   * check) stay open so `morse stop` and bot engines keep working untouched.
    */
   authPassword?: string;
   /**

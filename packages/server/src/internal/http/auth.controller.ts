@@ -27,6 +27,7 @@ import {
   OidcLoginStore,
   resolveEndpoints,
 } from '../auth/oidc.js';
+import { isAuthorized } from './basic-auth.js';
 
 /**
  * Login for multi-user Morse (`morse config set multiuser true`). Single-user
@@ -175,16 +176,31 @@ export class AuthController {
     return `${this.baseUrl(request)}/api/auth/oidc/callback`;
   }
 
-  /** What the login page needs before it renders: mode, setup state, SSO door, and — with a valid cookie — who is already in. */
+  /** What the login page needs before it renders: mode, setup state, SSO door, and — with a valid credential — who is already in. Single-user gated hosts report their own gate here, so the shared page renders for both. */
   @Get('status')
   async status(@Req() rawRequest: unknown): Promise<{
     multiuser: boolean;
     setupRequired: boolean;
     user?: AuthUser;
+    singleAuth?: { usernameRequired: boolean; authed: boolean };
     oidc?: { enabled: boolean; displayName: string; allowPassword: boolean };
   }> {
     if (!this.config.multiuser || this.db === undefined) {
-      return { multiuser: false, setupRequired: false };
+      const password = this.config.authPassword;
+      if (password === undefined) {
+        return { multiuser: false, setupRequired: false };
+      }
+      const request = rawRequest as AuthRequest;
+      const authed = isAuthorized(
+        { headers: request.headers as Record<string, unknown> },
+        password,
+        this.config.authUsername,
+      );
+      return {
+        multiuser: false,
+        setupRequired: false,
+        singleAuth: { usernameRequired: this.config.authUsername !== undefined, authed },
+      };
     }
     const request = rawRequest as AuthRequest;
     const setupRequired = (await countUsers(this.db)) === 0;
