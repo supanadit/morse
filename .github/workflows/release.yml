@@ -134,7 +134,8 @@ jobs:
             const start = lines.findIndex((line) => line === `## ${version}` || line.startsWith(`## ${version} `));
             const notes = [];
             for (let index = start + 1; start !== -1 && index < lines.length; index += 1) {
-              if (lines[index].startsWith("## ")) break;
+              // Subsection headings are also `##`; only the next version ends the section.
+              if (/^## \d+\.\d+\.\d+(?:\s|$)/.test(lines[index])) break;
               notes.push(lines[index]);
             }
             // Empty when this version has no section: the release step then falls
