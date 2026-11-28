@@ -163,8 +163,8 @@ export class BotDeliveryStore {
 
 /**
  * How far a delivery may move. Two terminal statuses are reachable straight from
- * `queued`: `cancelled` when a reader withdraws the work, and `dropped` when a
- * backstop refuses it before it ever ran — a full per-bot queue or a delivery
+ * `queued`: `cancelled` when a reader withdraws the work, and `dropped` when the
+ * host sets it aside before it ever ran — a full per-bot queue or a delivery
  * that sat undelivered past the TTL. Neither needs a running turn first, and
  * calling it "cancelled" would put the wrong word in the transcript. The four
  * terminal statuses go nowhere, which is the invariant every reader relies on.

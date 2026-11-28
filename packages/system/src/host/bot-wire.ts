@@ -191,7 +191,9 @@ export class BotWire {
         return;
       }
       case 'bot/stop':
-        bot.stop(message.payload.conversationId, message.payload.username);
+        // A reader's stop ends what the room sent to threads too, or the next
+        // answer handed back would wake it again.
+        bot.stop(message.payload.conversationId, message.payload.username, true);
         this.emitRoster(bot);
         return;
       case 'bot/newDiscussion':

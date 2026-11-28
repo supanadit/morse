@@ -28,7 +28,6 @@ import { BOT_DESCRIPTION_LIMIT } from '@morse/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { UnsupportedByHostError } from '../errors.js';
-import { BUS_LIMITS } from './bus.js';
 import { hostPerson } from './person.js';
 import { DELIVERY_TTL_MS } from './deliveries.js';
 import type { BotEngineAdapter, BotEvent } from './service.js';
@@ -522,6 +521,28 @@ async function settle(service: BotService, conversationId = 'dm-forge'): Promise
     await Promise.resolve();
   }
   throw new Error(`The lanes in "${conversationId}" never settled.`);
+}
+
+/**
+ * Waits until every room in a chain of asks is idle at once. A relay wakes its
+ * asker in another room, so one room settling says nothing about the chain.
+ */
+async function settleAll(service: BotService, rooms: string[]): Promise<void> {
+  const idle = () =>
+    rooms.every((room) => {
+      const state = service.routing(room);
+      return state === null || (state.active.length === 0 && state.queued.length === 0);
+    });
+  for (let tick = 0; tick < 500; tick += 1) {
+    if (idle()) {
+      await flush();
+      if (idle()) {
+        return;
+      }
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`The lanes in ${rooms.join(', ')} never settled.`);
 }
 
 /** The delivery rows the service persisted for one conversation. */
@@ -2221,11 +2242,15 @@ describe('BotService rounds', () => {
     expect(service.routing(group.id)).toBeNull();
   });
 
-  it('a reply that names the bot that asked wakes nobody', async () => {
-    const { adapter, service } = harness({
-      script: ({ bot }) => ({
-        text: bot === 'forge' ? '@sable take over' : '@forge all yours',
-      }),
+  it('a reply that names the bot that asked wakes it, until one replies without a name', async () => {
+    // Five bot hops — two past the depth cap this used to have — and then Sable
+    // answers without a name, which is how a bot ends an exchange.
+    const lines: Record<string, string[]> = {
+      forge: ['@sable take over', '@sable still here', '@sable you there?'],
+      sable: ['@forge all yours', '@forge sure?', 'done, all yours'],
+    };
+    const { root, adapter, service } = harness({
+      script: ({ bot, call }) => ({ text: lines[bot]?.[call - 1] ?? 'out of lines' }),
     });
     await twoBots(service);
     const group = service.createGroup({
@@ -2237,15 +2262,33 @@ describe('BotService rounds', () => {
     await service.send(group.id, 'go');
     await settle(service, group.id);
 
-    // Sable's answer names Forge back: that is the answer, not a second ask, so
-    // Forge takes one turn and the room stays at two bot lines.
-    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(1);
+    // Forge is asked at depth 2 and 4 — the hops the asker filter used to drop —
+    // and Sable's at depth 5 is past the old cap. Nothing is refused, so no note.
+    expect(
+      deliveriesOf(root, group.id)
+        .filter((row) => row.from.type === 'bot')
+        .map((row) => [row.to, row.reason, row.depth]),
+    ).toEqual([
+      ['sable', 'mention', 1],
+      ['forge', 'mention', 2],
+      ['sable', 'mention', 3],
+      ['forge', 'mention', 4],
+      ['sable', 'mention', 5],
+    ]);
+    expect(gatewayFor(adapter, 'forge').prompts).toHaveLength(3);
     expect(
       service
         .transcript(group.id)
         .filter((entry) => entry.author.role === 'bot')
         .map((entry) => entry.text),
-    ).toEqual(['@sable take over', '@forge all yours']);
+    ).toEqual([
+      '@sable take over',
+      '@forge all yours',
+      '@sable still here',
+      '@forge sure?',
+      '@sable you there?',
+      'done, all yours',
+    ]);
     expect(service.transcript(group.id).some((entry) => entry.author.role === 'system')).toBe(
       false,
     );
@@ -3773,7 +3816,7 @@ describe('BotService bus', () => {
     const paths = service.botBusPaths('sigil');
     const live = JSON.parse(readFileSync(paths.turnFile, 'utf8'));
 
-    // A fresh root at depth 0 would opt this send out of both loop backstops
+    // A fresh root at depth 0 would vouch for a room and a hop the host never queued
     // while still naming the delivery the lane is really running. The delivery
     // is the authority on both, so the file is refused.
     writeFileSync(paths.turnFile, JSON.stringify({ ...live, depth: 0, rootId: 'fresh-root' }));
@@ -3825,123 +3868,6 @@ describe('BotService bus', () => {
 
     // No turn file, no room: a settled turn leaves `inRoom` false for everyone.
     expect(service.busRoster('sigil').some((entry) => entry.inRoom)).toBe(false);
-  });
-
-  it('drops a reply’s ask one hop past the depth limit, with a note', async () => {
-    // A real cycle, not a hand-written file: each bot names the next one in its
-    // reply, so every delivery's depth is the one the host queued it with.
-    const next: Record<string, string> = { sigil: 'loom', loom: 'sage', sage: 'sigil' };
-    const { root, service } = harness({
-      script: ({ bot }) => ({ text: `@${next[bot]} hop` }),
-    });
-    await busBots(service);
-    await service.createBot(
-      botInput({ username: 'sage', name: 'Sage', description: 'Closes the loop' }),
-    );
-    const group = service.createGroup({ name: 'Launch', members: ['sigil', 'loom', 'sage'] });
-
-    await service.send(group.id, '@sigil start');
-    await settle(service, group.id);
-
-    // Five turns after the person's: Sigil, Loom, Sage, Sigil, Loom. The sixth
-    // would be depth 5 — one past the cap — so it is noted and nothing is queued.
-    expect(
-      deliveriesOf(root, group.id)
-        .filter((row) => row.from.type === 'bot')
-        .map((row) => [row.to, row.reason, row.depth]),
-    ).toEqual([
-      ['loom', 'mention', 1],
-      ['sage', 'mention', 2],
-      ['sigil', 'mention', 3],
-      ['loom', 'mention', 4],
-    ]);
-    const notes = service
-      .transcript(group.id)
-      .filter((entry) => entry.author.role === 'system')
-      .map((entry) => entry.text);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain(`past the depth limit of ${BUS_LIMITS.depth}`);
-    // The note names the bot that was not asked, the root and the reason, so a
-    // reader can tell a loop from a bot that simply stopped talking.
-    expect(notes[0]).toContain('Sage');
-    expect(notes[0]).toContain('root ');
-    expect(notes[0]).toContain('reason mention');
-  });
-
-  it('takes the delivery that reaches the per-root limit and drops the next with a note', async () => {
-    const thread = 'thread-loom-sigil';
-    const { root, adapter, service } = harness({
-      // Loom's first turn in the thread holds, so every ask behind it stays
-      // queued and the root is counted, not answered.
-      script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
-    });
-    await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
-    await holdTurn(service, adapter, group.id, 'sigil');
-
-    // The person's line is one delivery of this root; the bot sends fill the
-    // rest, and the one that brings the root to its limit is still taken.
-    for (let index = 0; index < BUS_LIMITS.perRoot - 1; index += 1) {
-      const result = await service.busSend('sigil', { to: 'loom', text: `filled ${index}` });
-      expect(result.queued).toBe(true);
-    }
-    expect(deliveriesOf(root, group.id)).toHaveLength(1);
-    expect(deliveriesOf(root, thread)).toHaveLength(BUS_LIMITS.perRoot - 1);
-
-    const refused = await service.busSend('sigil', { to: 'loom', text: 'one too many' });
-
-    expect(refused).toEqual({ deliveryId: '', conversationId: group.id, queued: false });
-    // Nothing was added: the root stays at its limit, and the room says why.
-    expect(deliveriesOf(root, thread)).toHaveLength(BUS_LIMITS.perRoot - 1);
-    expect(
-      service
-        .transcript(group.id)
-        .filter((entry) => entry.author.role === 'system')
-        .map((entry) => entry.text)
-        .some((text) => text.includes(`past its limit of ${BUS_LIMITS.perRoot}`)),
-    ).toBe(true);
-
-    service.stop(group.id);
-    service.stop(thread);
-    await settle(service, group.id);
-    await settle(service, thread);
-  });
-
-  it('refuses a bot’s sixty-first send in an hour', async () => {
-    const { adapter, service } = harness({
-      now: () => 1_000_000,
-      // Every bot's first turn holds, so Loom's queue stays put while the sends
-      // accumulate and each caller remains inside one live turn.
-      script: ({ call }) => (call === 1 ? { text: 'held', hold: true } : { text: 'answered' }),
-    });
-    await busBots(service);
-    const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
-
-    // A root takes 48 deliveries, the person's line included, so the hour is
-    // filled from two roots: 47 here, then 13 more — 60 in all. The one past
-    // the hour is the refusal.
-    await holdTurn(service, adapter, 'dm-sigil', 'sigil');
-    for (let index = 0; index < BUS_LIMITS.perRoot - 1; index += 1) {
-      await service.busSend('sigil', { to: 'loom', text: `first root ${index}` });
-    }
-    service.stop('dm-sigil');
-    await settle(service, 'dm-sigil');
-
-    await holdTurn(service, adapter, group.id, 'sigil');
-    for (let index = 0; index < BUS_LIMITS.perBotPerHour - (BUS_LIMITS.perRoot - 1); index += 1) {
-      await service.busSend('sigil', { to: 'loom', text: `second root ${index}` });
-    }
-
-    const refusal = await service
-      .busSend('sigil', { to: 'loom', text: 'one too many' })
-      .catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(BotBusError);
-    expect((refusal as BotBusError).reason).toContain('last hour');
-
-    service.stop('thread-loom-sigil');
-    service.stop(group.id);
-    await settle(service, 'thread-loom-sigil');
-    await settle(service, group.id);
   });
 });
 
@@ -4274,6 +4200,64 @@ describe('BotService answers', () => {
 
     held.release();
     await settle(service, 'dm-sigil');
+  });
+
+  it('stop in the asker’s room reaches the thread it asked, so nothing wakes it again', async () => {
+    // Loom holds its thread turn, so the stop lands on work in flight.
+    const sends: Promise<unknown>[] = [];
+    const { root, adapter, service } = harness({
+      script: ({ bot, call }) => {
+        if (bot === 'loom') {
+          return { text: 'late', hold: true };
+        }
+        if (call === 1) {
+          sends.push(
+            service
+              .busSend('sigil', { to: 'loom', text: 'try' })
+              .catch(() => undefined),
+          );
+          return { text: 'asking' };
+        }
+        return { text: 'woken' };
+      },
+    });
+    await busBots(service);
+    const dm = 'dm-sigil';
+    const thread = 'thread-loom-sigil';
+
+    await service.send(dm, 'check with loom');
+    await (await waitForGateway(adapter, 'loom')).prompted;
+    await settle(service, dm);
+    await Promise.all(sends);
+
+    service.stop(dm, undefined, true);
+    await settleAll(service, [dm, thread]);
+
+    // The ask Loom was working on is the person's room's work, so it was
+    // withdrawn with it, and a cancelled answer wakes nobody.
+    expect(deliveriesOf(root, thread).map((row) => row.status)).toEqual(['cancelled']);
+    expect(
+      service
+        .transcript(dm)
+        .filter((entry) => entry.author.role === 'bot')
+        .map((entry) => entry.text),
+    ).toEqual(['asking']);
+    const notes = service
+      .transcript(dm)
+      .filter((entry) => entry.author.role === 'system')
+      .map((entry) => entry.text);
+    // The person's room had nothing running, so it is not "stopped": it learns
+    // that the answer it was owed was cancelled.
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain('Loom');
+    expect(notes[0]).toContain('cancelled');
+    // The thread is where the work was, so it is the room that says so.
+    expect(
+      service
+        .transcript(thread)
+        .filter((entry) => entry.author.role === 'system')
+        .map((entry) => entry.text),
+    ).toContain('Stopped.');
   });
 
   it('notes a stopped thread answer in the room that would have received it', async () => {
@@ -4652,7 +4636,7 @@ describe('BotService answers', () => {
     expect(gatewayFor(adapter, 'loom').prompts[1]).toContain('answered the ask you sent');
   });
 
-  it('refuses a relay one hop past the depth cap and says why', async () => {
+  it('hands a chain’s answers back one room at a time, however deep it goes', async () => {
     // One bot per hop, each asking the next from inside its own turn, so every
     // delivery's depth is the one the host actually queued it with.
     const asked = new Set<string>();
@@ -4672,6 +4656,7 @@ describe('BotService answers', () => {
               .busSend(bot, { to: target, text: `ask ${target}` })
               .catch(() => undefined),
           );
+          return { text: `${bot} asked ${target}` };
         }
         return { text: `${bot} answered` };
       },
@@ -4686,35 +4671,91 @@ describe('BotService answers', () => {
     const group = service.createGroup({ name: 'Launch', members: ['sigil'] });
 
     await service.send(group.id, '@sigil start');
+    const rooms = [group.id, 'thread-loom-sigil', 'thread-loom-sage', 'thread-reed-sage'];
+    await settleAll(service, rooms);
+
+    // The replies climb past the old depth cap — 4, 5 and 6 are all handed back,
+    // the last one into the group — and nothing was refused, so no room has a note.
+    expect(
+      rooms.flatMap((room) =>
+        service.transcript(room).filter((entry) => entry.author.role === 'system'),
+      ),
+    ).toEqual([]);
+    const handedBack = (room: string, depth: number) =>
+      deliveriesOf(root, room).find((row) => row.kind === 'reply' && row.depth === depth);
+    expect(handedBack('thread-loom-sage', 4)).toMatchObject({ to: 'sage', status: 'done' });
+    expect(handedBack('thread-loom-sigil', 5)).toMatchObject({ to: 'loom', status: 'done' });
+    expect(handedBack(group.id, 6)).toMatchObject({ to: 'sigil', status: 'done' });
+  });
+
+  it('lets an asker ask a thread again from the turn its answer woke, until it stops', async () => {
+    // Sigil asks Loom three times, each from inside the turn Loom's previous
+    // answer woke it in — the last two past the depth cap this used to have —
+    // and then answers the person without asking, which ends the exchange.
+    const sends: Promise<unknown>[] = [];
+    const { root, adapter, service } = harness({
+      script: ({ bot, call }) => {
+        if (bot === 'loom') {
+          return { text: `loom answer ${call}` };
+        }
+        if (call <= 3) {
+          sends.push(
+            service
+              .busSend('sigil', { to: 'loom', text: `ask ${call}` })
+              .catch(() => undefined),
+          );
+          return { text: call === 1 ? 'sigil asked' : 'sigil asked again' };
+        }
+        return { text: 'sigil done' };
+      },
+    });
+    await busBots(service);
+    const dm = 'dm-sigil';
     const thread = 'thread-loom-sigil';
-    for (let tick = 0; tick < 1000; tick += 1) {
-      if (service.transcript(thread).some((entry) => entry.author.role === 'system')) {
-        break;
-      }
-      await Promise.resolve();
-    }
-    // Every send the chain made settles; a refusal is answered in the room, not
-    // thrown at the bot, so none of them rejects the test.
+
+    await service.send(dm, 'check with loom');
+    await settleAll(service, [dm, thread]);
     await Promise.all(sends);
 
-    // The allowed relay at the cap reaches Loom at depth 3 and Sage at depth 4;
-    // the next hop would be depth 5, so it is said and nothing is queued.
-    const notes = service
-      .transcript(thread)
-      .filter((entry) => entry.author.role === 'system')
-      .map((entry) => entry.text);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('Sage');
-    expect(notes[0]).toContain('reason bot');
-    expect(notes[0]).toContain('depth limit of 4');
-    const relaid = deliveriesOf(root, thread);
-    expect(relaid.some((row) => row.kind === 'reply' && row.depth === 3)).toBe(true);
-    expect(relaid.some((row) => row.kind === 'reply' && row.depth === 5)).toBe(false);
+    // Three asks climb the same thread, each woken answer one deeper: 1→6.
+    const hops = (room: string) =>
+      deliveriesOf(root, room)
+        .filter((row) => row.from.type === 'bot')
+        .map((row) => [row.kind, row.to, row.depth]);
+    expect(hops(thread)).toEqual([
+      ['message', 'loom', 1],
+      ['message', 'loom', 3],
+      ['message', 'loom', 5],
+    ]);
+    expect(hops(dm)).toEqual([
+      ['reply', 'sigil', 2],
+      ['reply', 'sigil', 4],
+      ['reply', 'sigil', 6],
+    ]);
+    expect(gatewayFor(adapter, 'loom').prompts).toHaveLength(3);
+    expect(gatewayFor(adapter, 'sigil').prompts).toHaveLength(4);
+    // The person's room holds only Sigil's own words; Loom's answers ride the
+    // wakes, and nothing was refused.
     expect(
-      deliveriesOf(root, 'thread-loom-sage').find((row) => row.kind === 'reply'),
-    ).toMatchObject({ to: 'sage', depth: 4 });
-
-    await settle(service, group.id);
+      service
+        .transcript(dm)
+        .filter((entry) => entry.author.role === 'bot')
+        .map((entry) => entry.text),
+    ).toEqual(['sigil asked', 'sigil asked again', 'sigil asked again', 'sigil done']);
+    // Each answer wakes Sigil in the person's room, and the last one is what
+    // its final word to the person answers — folded under it, never a line.
+    const prompts = gatewayFor(adapter, 'sigil').prompts;
+    expect(prompts[1]).toContain('loom answer 1');
+    expect(prompts[2]).toContain('loom answer 2');
+    expect(prompts[3]).toContain('loom answer 3');
+    const last = service.transcript(dm).filter((entry) => entry.author.role === 'bot').at(-1);
+    expect(last?.text).toBe('sigil done');
+    expect(last?.reply?.text).toBe('loom answer 3');
+    expect(
+      [dm, thread].flatMap((room) =>
+        service.transcript(room).filter((entry) => entry.author.role === 'system'),
+      ),
+    ).toEqual([]);
   });
 
   it('leaves a failed ask marked failed when the asking turn settles', async () => {

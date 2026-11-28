@@ -210,8 +210,8 @@ export class ScopedBotPort implements BotControllerPort {
     return this.service.send(this.requireVisible(conversationId), text, attachments, this.owner);
   }
 
-  stop(conversationId: string, username?: string): void {
-    return this.service.stop(this.requireVisible(conversationId), username);
+  stop(conversationId: string, username?: string, followAsks = false): void {
+    return this.service.stop(this.requireVisible(conversationId), username, followAsks);
   }
 
   newDiscussion(conversationId: string): void {

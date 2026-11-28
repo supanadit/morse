@@ -42,7 +42,7 @@ import { stepForEvent } from './activity.js';
 import { UnsupportedByHostError } from '../errors.js';
 import type { MorseLogger } from '../logger.js';
 import { writeBotAttachments } from './attachments.js';
-import { addressedBots, busRefusal, BUS_LIMITS, replyAddressedBots } from './bus.js';
+import { addressedBots, BUS_LIMITS, replyAddressedBots } from './bus.js';
 import { BotBusCredentials } from './bus-credentials.js';
 import { BotDeliveryStore, DELIVERY_TTL_MS } from './deliveries.js';
 import {
@@ -247,9 +247,9 @@ export type BotBusPort = Pick<
 /**
  * A bus call the host refuses, with the sentence a bot can act on.
  *
- * Not a crash: a self-send, an unknown teammate, a stale turn or a bucket of
- * hourly chatter is a tool error the plugin hands back inside the bot's turn, so
- * `reason` is the whole message and the transport returns it rather than a stack.
+ * Not a crash: a self-send, an unknown teammate or a stale turn is a tool error
+ * the plugin hands back inside the bot's turn, so `reason` is the whole message
+ * and the transport returns it rather than a stack.
  */
 export class BotBusError extends Error {
   readonly reason: string;
@@ -285,12 +285,6 @@ const CONTEXT_MAX_CHARS = 24_000;
  * bounded without walking every conversation on every message.
  */
 const PRUNE_INTERVAL_MS = 3_600_000;
-/**
- * How far back the bus counts one bot's own sends. The per-bot hourly cap is a
- * backstop against a loop, not a quota: it lives in memory because a restart
- * that forgets an hour of chatter is cheaper than persisting it for every bot.
- */
-const BUS_SEND_WINDOW_MS = 3_600_000;
 /**
  * How often one bot's answer may be pushed while it is written. Text arrives in
  * bursts, and a row that repaints on every token is one a slow client cannot
@@ -515,8 +509,6 @@ export class BotService {
   private readonly compacting = new Set<string>();
   /** The token and turn files each bot's engine calls the bus back with. */
   private readonly bus: BotBusCredentials;
-  /** When each bot last sent over the bus, for the hourly backstop. */
-  private readonly busSends = new Map<string, number[]>();
   private readonly idleMs: number;
   private readonly clock: () => number;
   /** When the terminal-row sweep last ran, so a live host does not repeat it. */
@@ -706,7 +698,6 @@ export class BotService {
     // The bot's engine is stopping, so its bus credential dies with it: a token
     // that outlived the bot would let a dead plugin's calls through.
     this.bus.forget(bot.username);
-    this.busSends.delete(bot.username);
     const factory = this.factories.get(bot.username);
     this.factories.delete(bot.username);
     await this.disposeFactory(factory, "Failed to dispose a deleted bot's factory");
@@ -1311,9 +1302,8 @@ export class BotService {
    *
    * The line is written before the delivery and the delivery carries its id, so
    * the recipient's slice has something to end at — and the room shows who asked
-   * whom. A send that a backstop drops is answered in the transcript instead of
-   * queued, and one past the hourly cap is refused outright: the caller is still
-   * inside its turn and can read the sentence and stop.
+   * whom. A send is always queued: bots talk for as long as they keep naming
+   * each other, and a person stops them.
    */
   async busSend(username: string, input: BotBusSendInput): Promise<BotBusSendResult> {
     if (input.to === username) {
@@ -1339,35 +1329,6 @@ export class BotService {
     }
 
     const depth = turn.depth + 1;
-    // The two drop arms are what a loop looks like from the room's side; the
-    // hourly cap is a tool error the sending bot must read and act on. Every
-    // count includes the delivery being judged — that is what `busRefusal`
-    // documents, and what makes "at the limit" still pass.
-    const refused = busRefusal({
-      depth,
-      rootCount: this.deliveriesUnderRoot(turn.rootId) + 1,
-      recentCount: 0,
-    });
-    if (refused !== undefined) {
-      // A dropped send is never silent, and the note names the bot that was not
-      // asked, the root it belonged to and why it was queued — the same three
-      // facts the queue-overflow note gives, so a reader can tell a loop from a
-      // bot that simply stopped talking.
-      this.note(
-        current.id,
-        `${this.displayNameOf(target.username)}'s ask was dropped — ` +
-          `root ${turn.rootId}, reason bot. ${refused}`,
-      );
-      return { deliveryId: '', conversationId: current.id, queued: false };
-    }
-    const hourly = busRefusal({
-      depth: 0,
-      rootCount: 0,
-      recentCount: this.recentSendsOf(username) + 1,
-    });
-    if (hourly !== undefined) {
-      throw new BotBusError(hourly);
-    }
 
     const threadId = threadConversationId(username, target.username);
     const existing = this.findConversation(threadId);
@@ -1431,7 +1392,6 @@ export class BotService {
       status: 'queued',
     };
     this.queueDelivery(delivery, room.id, () => {
-      this.recordSend(username);
       // Recorded on the sender's own turn: the row reads the target's delivery
       // for its state, so the chip moves without the sender's engine saying
       // anything.
@@ -1566,9 +1526,8 @@ export class BotService {
    * never when it is answered — a bot's turn takes as long as its engine takes,
    * and a reader's next line must not wait behind it.
    *
-   * A person's message is never refused by a bus backstop: it starts a root at
-   * depth 0, so the depth and per-root caps cannot apply to it. A bot's queue
-   * that is already full loses its oldest queued delivery instead (see
+   * A person's message is never refused: it starts a root at depth 0. A bot's
+   * queue that is already full loses its oldest queued delivery instead (see
    * `makeRoomFor`), so the newcomer is always taken.
    */
   async send(
@@ -1642,13 +1601,52 @@ export class BotService {
    * every bot in the room stops. Either way other rooms keep going — a lane that
    * loses its turn takes its next delivery, and a bot working elsewhere is
    * untouched — and the gateways stay warm.
+   *
+   * A reader's stop also follows what the room sent elsewhere (`followAsks`): an
+   * ask it handed to a thread, and whatever that thread asked in turn. Left
+   * running, the next answer handed back would wake this room again. A delete or
+   * a members edit does not follow — a thread outlives the room it came from, and
+   * finishes its work there.
    */
-  stop(conversationId: string, username?: string): void {
-    const rows = this.deliveries
+  stop(conversationId: string, username?: string, followAsks = false): void {
+    const here = this.deliveries
       .all(conversationId)
       .filter((row) => username === undefined || row.to === username);
-    const queued = rows.filter((row) => row.status === 'queued');
-    const running = rows.filter((row) => row.status === 'running');
+    const queued = here
+      .filter((row) => row.status === 'queued')
+      .map((row) => ({ conversationId, row }));
+    const running = here
+      .filter((row) => row.status === 'running')
+      .map((row) => ({ conversationId, row }));
+    if (username === undefined && followAsks) {
+      // What this room's work sent elsewhere is this room's work too: left
+      // running, the next answer handed back would wake this room again. Only
+      // asks are followed — a wake waiting here is this room's own to cancel.
+      const owed = [conversationId];
+      const visited = new Set(owed);
+      for (let index = 0; index < owed.length; index += 1) {
+        const origin = owed[index];
+        if (origin === undefined) {
+          continue;
+        }
+        for (const conversation of this.registry.conversations) {
+          if (visited.has(conversation.id)) {
+            continue;
+          }
+          const sent = this.deliveries
+            .all(conversation.id)
+            .filter((row) => row.originId === origin && (row.status === 'queued' || row.status === 'running'));
+          if (sent.length === 0) {
+            continue;
+          }
+          visited.add(conversation.id);
+          owed.push(conversation.id);
+          for (const row of sent) {
+            (row.status === 'queued' ? queued : running).push({ conversationId: conversation.id, row });
+          }
+        }
+      }
+    }
     if (queued.length === 0 && running.length === 0) {
       return;
     }
@@ -1659,22 +1657,27 @@ export class BotService {
       username === undefined
         ? 'Stopped.'
         : `${this.displayNameOf(username)} stopped — only that bot's work here was withdrawn.`;
-    for (const row of queued) {
-      this.deliveries.setStatus(conversationId, row.id, 'cancelled', note);
+    const rooms = [...new Set([...queued, ...running].map((entry) => entry.conversationId))];
+    for (const { conversationId: room, row } of queued) {
+      this.deliveries.setStatus(room, row.id, 'cancelled', note);
       this.turnAttachments.delete(row.id);
     }
-    this.note(conversationId, note);
-    for (const row of running) {
+    for (const room of rooms) {
+      this.note(room, note);
+    }
+    for (const { conversationId: room, row } of running) {
       // Marking it cancelled first means the turn is not waited for: the gateway
       // is aborted, and a turn still starting checks this before it prompts.
-      this.deliveries.setStatus(conversationId, row.id, 'cancelled', note);
+      this.deliveries.setStatus(room, row.id, 'cancelled', note);
       this.turnAttachments.delete(row.id);
-      const warm = this.warm.get(warmKey(conversationId, row.to));
+      const warm = this.warm.get(warmKey(room, row.to));
       if (warm !== undefined) {
         void this.abortTurn(warm);
       }
     }
-    this.emitRouting(conversationId);
+    for (const room of rooms) {
+      this.emitRouting(room);
+    }
   }
 
   /**
@@ -1910,7 +1913,6 @@ export class BotService {
     this.announced.clear();
     // Credentials die with the process that handed them out.
     this.bus.clear();
-    this.busSends.clear();
     this.listeners.clear();
   }
 
@@ -2127,9 +2129,7 @@ export class BotService {
    *
    * A failed or cancelled turn is said in the room that would have received it,
    * naming the bot and the reason. A done turn with no words wakes the asker with
-   * an empty answer, which it must still say. A relay that would spend a bus cap
-   * — depth, the root's total or the bot's hour — is said in the parent too, and
-   * wakes nobody, exactly as a bot's own ask is. When nobody in the room can be
+   * an empty answer, which it must still say. When nobody in the room can be
    * woken — the asker left it, or it was never recorded — Morse says the answer
    * there instead, because an answer nobody can speak is still owed to the person.
    */
@@ -2202,24 +2202,6 @@ export class BotService {
         ? asker
         : undefined;
     const depth = delivery.depth + 1;
-    if (wakeTo !== undefined) {
-      // The relay spends the same budget as a bot's own ask: the depth, the
-      // root's total and the sender's hour are one rule, read from one place.
-      const refused = busRefusal({
-        depth,
-        rootCount: this.deliveriesUnderRoot(delivery.rootId) + 1,
-        recentCount: this.recentSendsOf(bot.username) + 1,
-      });
-      if (refused !== undefined) {
-        // A refused relay is said, not silent, and wakes nobody.
-        this.note(
-          parent.id,
-          `${name}'s answer was not handed back — root ${delivery.rootId}, ` +
-            `reason bot. ${refused}`,
-        );
-        return;
-      }
-    }
 
     // The wake asks about the room as it stands: the peer's words ride the
     // delivery, not a line, so nothing of the delegated bot is ever written into
@@ -2400,10 +2382,9 @@ export class BotService {
    * the teammate's answer — never a relay line plus a summary from the same bot.
    *
    * The answer lands in the room, where the person reads it, so nobody is woken
-   * to pass it on; the asker is caught up on its next turn like anyone else who
-   * sat one out. The ask spends the sender's bus budget like a `bot_send` would,
-   * and a refused one is said in the room: the bot's turn is over, so there is
-   * nobody to hand the sentence to.
+   * to pass it on. A teammate that names the asker back asks it in turn, so two
+   * bots go back and forth until one replies without a name; anyone who sat one
+   * out is caught up on its next turn.
    */
   private routeReply(
     conversation: ConversationRecord,
@@ -2416,21 +2397,7 @@ export class BotService {
       text: reply.text,
       members: conversation.members,
       self: bot.username,
-      ...(delivery.from.type === 'bot' ? { asker: delivery.from.username } : {}),
     })) {
-      const refused = busRefusal({
-        depth,
-        rootCount: this.deliveriesUnderRoot(delivery.rootId) + 1,
-        recentCount: this.recentSendsOf(bot.username) + 1,
-      });
-      if (refused !== undefined) {
-        this.note(
-          conversation.id,
-          `${bot.name}'s ask of ${this.displayNameOf(target.username)} was dropped — ` +
-            `root ${delivery.rootId}, reason mention. ${refused}`,
-        );
-        continue;
-      }
       const ask: BotDelivery = {
         id: newDeliveryId(),
         rootId: delivery.rootId,
@@ -2444,7 +2411,7 @@ export class BotService {
         createdAt: this.clock(),
         status: 'queued',
       };
-      this.queueDelivery(ask, conversation.id, () => this.recordSend(bot.username));
+      this.queueDelivery(ask, conversation.id);
     }
   }
 
@@ -2616,37 +2583,6 @@ export class BotService {
   }
 
   /**
-   * How much work one trigger has already caused, across every room it reached.
-   * Counted from the delivery files rather than from memory, so a restart keeps
-   * the per-root cap honest.
-   */
-  private deliveriesUnderRoot(rootId: string): number {
-    let count = 0;
-    for (const conversation of this.registry.conversations) {
-      for (const row of this.deliveries.all(conversation.id)) {
-        if (row.rootId === rootId) {
-          count += 1;
-        }
-      }
-    }
-    return count;
-  }
-
-  /** One bot's sends inside the hour, with aged-out ones dropped as they are read. */
-  private recentSendsOf(username: string): number {
-    const cutoff = this.clock() - BUS_SEND_WINDOW_MS;
-    const recent = (this.busSends.get(username) ?? []).filter((at) => at > cutoff);
-    this.busSends.set(username, recent);
-    return recent.length;
-  }
-
-  private recordSend(username: string): void {
-    const recent = this.busSends.get(username) ?? [];
-    recent.push(this.clock());
-    this.busSends.set(username, recent);
-  }
-
-  /**
    * The turn a bus call belongs to, or nothing. Three things must agree: the file
    * exists and is in time, and its delivery is the one this bot's lane is running.
    * The last check is what keeps a file a crash left behind from pointing a send
@@ -2675,9 +2611,8 @@ export class BotService {
       return undefined;
     }
     // The trigger and the hop count come from the delivery, not from the file:
-    // an engine owns that config directory, so a hand-written file naming a
-    // fresh root at depth 0 would otherwise opt itself out of both loop
-    // backstops while still pointing at a real, running delivery.
+    // an engine owns that config directory, so a hand-written file must not
+    // vouch for a room or a hop the host never queued.
     if (context.rootId !== row.rootId || context.depth !== row.depth) {
       return undefined;
     }

@@ -304,8 +304,9 @@ describe('MorseSessionFactory bot wiring', () => {
       payload: { conversationId: 'dm-x' },
     });
     // No handle: the controller passes the payload through, so the service reads
-    // `undefined` as "every bot in this conversation".
-    expect(bot.calls.stop).toHaveBeenCalledWith('dm-x', undefined);
+    // `undefined` as "every bot in this conversation". A reader's stop follows
+    // what the room sent to threads too, so the third argument is always true.
+    expect(bot.calls.stop).toHaveBeenCalledWith('dm-x', undefined, true);
     expect(messages.at(-1)).toEqual({ type: 'bot/roster', payload: bot.roster });
 
     await controller.handleClientMessage({

@@ -26,8 +26,8 @@ export type BotDeliveryReason = 'mention' | 'all' | 'lead' | 'direct' | 'bot' | 
 
 /**
  * How far a delivery has moved. A status only moves forward; `dropped` is the
- * backstop's verdict (queue overflow, depth or per-root cap, the undelivered TTL)
- * and `failed` is the engine's, so a reader can tell a refusal from a crash.
+ * host's verdict (queue overflow or the undelivered TTL) and `failed` is the
+ * engine's, so a reader can tell a refusal from a crash.
  */
 export type BotDeliveryStatus =
   | 'queued'
@@ -51,7 +51,7 @@ export type BotDeliveryOrigin =
  * One queued ask, persisted per conversation so it survives a restart.
  *
  * `rootId` is the trigger every delivery caused by it shares, which is what makes
- * a depth cap and a "this work is finished" view possible. `entryId` is always
+ * a "this work is finished" view possible. `entryId` is always
  * present: a delivery asks about a transcript line, written before the delivery is
  * queued, so a turn's context is a slice that ends at a known line instead of a
  * loose message string.
@@ -97,7 +97,7 @@ export interface BotDelivery {
   answer?: string;
   kind: BotDeliveryKind;
   reason: BotDeliveryReason;
-  /** Bot-to-bot hops from the root; the host refuses past its cap. */
+  /** Bot-to-bot hops from the root — a count for the record; nothing refuses on it. */
   depth: number;
   createdAt: number;
   status: BotDeliveryStatus;
