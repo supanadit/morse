@@ -12,6 +12,7 @@ import type {
   BotTranscriptEntry,
   BotUsage,
   ComposerSeed,
+  DraftCard,
   FrontendIdentity,
   HostCapabilities,
   InteractionRequest,
@@ -346,6 +347,16 @@ export interface ComposerDraftMessage extends HostMessageBase {
   payload: SharedComposerDraft;
 }
 
+/**
+ * Every persisted draft composition, by draft tab. Sent with `host/ready` and
+ * after each change, so a reconnecting device (or one that just opened the
+ * same tab) applies the pick instead of the default.
+ */
+export interface DraftCardsMessage extends HostMessageBase {
+  type: 'draft/cards';
+  payload: { cards: Record<string, DraftCard> };
+}
+
 export interface TranscriptAppendMessage extends HostMessageBase {
   type: 'transcript/append';
   payload: TranscriptItem;
@@ -598,6 +609,7 @@ export type HostToClientMessage =
   | ComposerSeedMessage
   | ComposerStateMessage
   | ComposerDraftMessage
+  | DraftCardsMessage
   | HostCommandResultMessage
   | ErrorMessage
   | TerminalOutputMessage

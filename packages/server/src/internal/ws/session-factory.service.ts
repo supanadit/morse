@@ -7,6 +7,7 @@ import {
   AgentRouter,
   ChatService,
   ComposerHub,
+  DraftCardStore,
   InteractionHub,
   ScopedBotPort,
   SessionRegistry,
@@ -134,6 +135,7 @@ interface UserBundle {
   transcripts: SessionTranscriptStore;
   chat: ChatService;
   composer: ComposerHub;
+  draftCards: DraftCardStore;
   interactions: InteractionHub;
   mcpWatch: McpWatcher | undefined;
   detachTranscripts: () => void;
@@ -194,6 +196,11 @@ export class MorseSessionFactory {
    * keeps working while no client is connected.
    */
   private readonly composer: ComposerHub;
+  /**
+   * Draft tabs' compositions, persisted beside the queue. Created here so a
+   * pick survives the connection that made it, with no client connected.
+   */
+  private readonly draftCards: DraftCardStore;
   /** One pending-question map for every browser connected to this host. */
   private readonly interactions = new InteractionHub();
 
@@ -241,6 +248,8 @@ export class MorseSessionFactory {
       dataDir: this.config.dataDir,
       logger: this.logger,
     });
+    this.draftCards = new DraftCardStore(this.config.dataDir, this.logger);
+    this.warmQueued(this.composer, this.registry);
     this.composer.subscribe((message) => {
       // Single-user: every connection is the same user. Multi-user never
       // reaches here with more than one user's connections — each bundle owns
@@ -371,6 +380,7 @@ export class MorseSessionFactory {
       transcripts,
       chat,
       composer,
+      draftCards: new DraftCardStore(dataDir, this.logger),
       interactions: new InteractionHub(),
       mcpWatch,
       detachTranscripts,
@@ -379,9 +389,30 @@ export class MorseSessionFactory {
       botPort: this.bot === undefined ? undefined : new ScopedBotPort(this.bot, user),
     };
     this.bundles.set(userId, bundle);
+    this.warmQueued(composer, registry);
     return bundle;
   }
 
+  /**
+   * Reopens sessions with queued items, so the queue drains with no client
+   * connected. The hub only dispatches into hot sessions; without this, a
+   * queue left behind by a restart would wait for a reader to open its
+   * session. A session that no longer opens stays queued and is reported,
+   * never dropped.
+   */
+  private warmQueued(composer: ComposerHub, registry: SessionRegistry): void {
+    for (const state of composer.snapshot().states) {
+      if (state.queue.length === 0) {
+        continue;
+      }
+      void registry.activate(state.sessionId).catch((error: unknown) => {
+        this.logger.warn(
+          `The queued session ${state.sessionId} could not be reopened`,
+          error,
+        );
+      });
+    }
+  }
   /** Where one user's host-owned files (composer queue, workbench, drafts) live. */
   private userDataDir(userId: string): string {
     return join(this.config.dataDir, 'users', userId);
@@ -624,6 +655,7 @@ export class MorseSessionFactory {
       registry: bundle?.registry ?? this.registry,
       chat: bundle?.chat ?? new ChatService({ agent: this.registry, logger: this.logger }),
       composer: bundle?.composer ?? this.composer,
+      draftCards: bundle?.draftCards ?? this.draftCards,
       interactions: bundle?.interactions ?? this.interactions,
       ...(mcpWatch === undefined ? {} : { mcpWatch }),
     };

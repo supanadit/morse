@@ -12,6 +12,7 @@ import type {
   SharedComposerState,
 } from '@morse/protocol';
 import type { MorseLogger } from '../logger.js';
+import { AgentUnavailableError } from '../errors.js';
 import { readComposer, saveComposer } from './workbench-store.js';
 
 /** The one chat surface the hub needs; `ChatService` satisfies it. */
@@ -290,8 +291,11 @@ export class ComposerHub {
     }
     session.paused = undefined;
     const streaming = this.options.registry.stateOf(sessionKey)?.streaming === true;
-    const sent = await this.dispatch(sessionKey, item, streaming ? 'steer' : 'new');
-    if (!sent && index >= 0) {
+    const result = await this.dispatch(sessionKey, item, streaming ? 'steer' : 'new');
+    if (result === 'failed') {
+      session.queue.splice(Math.min(index, session.queue.length), 0, item);
+      this.failQueue(sessionKey);
+    } else if (result === 'wait' && index >= 0) {
       session.queue.splice(Math.min(index, session.queue.length), 0, item);
     }
     this.changed(sessionKey);
@@ -339,8 +343,12 @@ export class ComposerHub {
     this.dispatching.add(sessionKey);
     session.queue = session.queue.slice(1);
     this.changed(sessionKey);
-    const sent = await this.dispatch(sessionKey, item, 'new');
-    if (!sent) {
+    const result = await this.dispatch(sessionKey, item, 'new');
+    if (result === 'failed') {
+      const current = this.sessionOf(sessionKey);
+      current.queue.unshift(item);
+      this.failQueue(sessionKey);
+    } else if (result === 'wait') {
       const current = this.sessionOf(sessionKey);
       current.queue.unshift(item);
     }
@@ -349,18 +357,20 @@ export class ComposerHub {
   }
 
   /**
-   * Hands one item to the agent. `true` when it was accepted (or a compaction
-   * started); a refusal keeps the caller's item so nothing is lost.
+   * Hands one item to the agent. `sent` means it was accepted (or a
+   * compaction started); `wait` means the session is not open yet, so the
+   * item stays queued for its opening; `failed` means the run itself refused,
+   * so the queue pauses and the reader chooses. A refusal never loses the item.
    */
   private async dispatch(
     sessionKey: string,
     item: SharedComposerPrompt,
     mode: PromptMode,
-  ): Promise<boolean> {
+  ): Promise<'sent' | 'wait' | 'failed'> {
     try {
       if (item.compaction !== undefined) {
         await this.options.chat.compact(item.compaction.instructions, sessionKey);
-        return true;
+        return 'sent';
       }
       const outcome = await this.options.chat.prompt(
         item.text,
@@ -369,19 +379,33 @@ export class ComposerHub {
         item.pins,
         sessionKey,
       );
-      if (!outcome.accepted) {
-        this.warnNotOpen();
-        return false;
+      if (outcome.accepted) {
+        this.options.transcripts.userPrompt(sessionKey, item.text, item.images, item.pins);
+        return 'sent';
       }
-      this.options.transcripts.userPrompt(sessionKey, item.text, item.images, item.pins);
-      return true;
+      // The session is not open yet: keep the item for its opening, exactly
+      // like a persisted queue waiting for `agent/ready`.
+      if (outcome.reason === 'no-session') {
+        this.warnNotOpen();
+        return 'wait';
+      }
+      this.options.logger.warn(
+        `The queued message for ${sessionKey} was refused`,
+        outcome.reason,
+      );
+      return 'failed';
     } catch (error) {
+      // A compaction (or prompt) against a session that is not open yet is a
+      // wait, not a failure: the queue keeps working once it opens.
+      if (error instanceof AgentUnavailableError) {
+        this.warnNotOpen();
+        return 'wait';
+      }
       this.options.logger.warn(
         `The queued message for ${sessionKey} could not be sent`,
         error,
       );
-      this.warnNotOpen();
-      return false;
+      return 'failed';
     }
   }
 
@@ -390,6 +414,23 @@ export class ComposerHub {
     this.broadcast({
       type: 'notice',
       payload: { level: 'warn', text: NOT_OPEN_NOTICE, at: Date.now() },
+    });
+  }
+
+  /**
+   * A queued item the run itself refused: pause and say so, so the reader
+   * chooses instead of the queue retrying blindly on every settle. The item
+   * stays at the head, ready for Continue or Send now.
+   */
+  private failQueue(sessionKey: string): void {
+    this.pause(sessionKey, 'failed');
+    this.broadcast({
+      type: 'notice',
+      payload: {
+        level: 'error',
+        text: 'That queued item failed to run — Continue retries it, Send now runs it immediately.',
+        at: Date.now(),
+      },
     });
   }
 

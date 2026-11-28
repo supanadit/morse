@@ -37,6 +37,7 @@ function setup(
     activateSession: vi.fn(),
     newSession: vi.fn(),
     closeTerminal: vi.fn(),
+    clearDraftCard: vi.fn(),
     bot: { activeId: botActive },
     openBotConversation: vi.fn((id: string) => botActive.set(id)),
     // The default single-client host: closing a tab still drops its queue.
@@ -249,6 +250,24 @@ describe('WorkspaceTabs', () => {
     tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
     expect(tabs.tabs()).toEqual([{ kind: 'session', id: 's1', title: 'hello', cwd: '/repo' }]);
     expect(tabs.activeId()).toBe('s1');
+  });
+
+  it('forgets a draft tab\u2019s persisted picks when it closes or promotes', () => {
+    const { tabs, fake } = setup();
+
+    tabs.startDraft('/repo');
+    tabs.close('draft-1');
+    expect(fake.clearDraftCard).toHaveBeenCalledWith('draft-1');
+
+    tabs.startDraft('/repo');
+    expect(tabs.activeId()).toBe('draft-2');
+    tabs.showSession({ id: 's1', title: 'hello', cwd: '/repo' });
+    expect(fake.clearDraftCard).toHaveBeenCalledWith('draft-2');
+
+    // A live session tab carries no draft card: closing it clears nothing.
+    fake.clearDraftCard.mockClear();
+    tabs.close('s1');
+    expect(fake.clearDraftCard).not.toHaveBeenCalled();
   });
 
   it('keeps an unfinished draft when a real session is picked', () => {

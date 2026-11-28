@@ -20,11 +20,13 @@ import type {
   BotWaitingAsk,
   CommandOption,
   ContextUsage,
+  DraftCard,
   ModelOption,
   PromptImage,
   PromptMode,
   SessionCounts,
   SessionSpeed,
+  SessionViewState,
   ThinkingLevel,
   TokenUsage,
 } from '@morse/protocol';
@@ -930,6 +932,23 @@ export class ChatComposer {
         reloadKey = key;
         this.reloadWarning.set(undefined);
         this.reloadError.set(false);
+      });
+    });
+
+    // A draft tab restores its persisted composition when it comes to the
+    // front: the host saved the picks under this tab's key, and the host's
+    // draft memory follows the tab in front, so replaying here is what makes
+    // the pickers show the last choice on reload, reconnect or device change.
+    // The replay sends one half per pass and stops when the host matches, so
+    // an engine switch lands before the mode and model picked under it.
+    effect(() => {
+      const key = this.draftKey();
+      const card = key === undefined ? undefined : this.morse.draftCards()[key];
+      const state = this.morse.state();
+      untracked(() => {
+        if (key !== undefined && card !== undefined) {
+          this.replayDraftCard(key, card, state);
+        }
       });
     });
 
@@ -2047,7 +2066,7 @@ export class ChatComposer {
   protected pickModelFromSheet(model: ModelOption): void {
     // Not `onModelPick`: closing that popover focuses the prompt and would raise
     // the soft keyboard over the sheet we are still showing.
-    this.morse.setModel(model.provider, model.id);
+    this.morse.setModel(model.provider, model.id, this.draftKey());
     this.backSettings();
   }
 
@@ -2061,7 +2080,7 @@ export class ChatComposer {
   }
 
   protected onModelPick(model: ModelOption): void {
-    this.morse.setModel(model.provider, model.id);
+    this.morse.setModel(model.provider, model.id, this.draftKey());
     this.closeModelPicker();
   }
 
@@ -2137,7 +2156,7 @@ export class ChatComposer {
           ]);
           return;
         }
-        this.morse.setThinkingLevel(level);
+        this.morse.setThinkingLevel(level, this.draftKey());
         return;
       }
       case 'new':
@@ -2185,7 +2204,7 @@ export class ChatComposer {
       ]);
       return;
     }
-    this.morse.setModel(match.provider, match.id);
+    this.morse.setModel(match.provider, match.id, this.draftKey());
   }
 
   /**
@@ -2363,7 +2382,7 @@ export class ChatComposer {
   }
 
   protected onThinkingPick(level: ThinkingLevel): void {
-    this.morse.setThinkingLevel(level);
+    this.morse.setThinkingLevel(level, this.draftKey());
   }
 
   /** The engine panel is the only other popover that may be open with this one. */
@@ -2376,7 +2395,7 @@ export class ChatComposer {
   protected onEnginePick(kind: string): void {
     // The warning names the engine that refused; a different pick makes it stale.
     this.reloadWarning.set(undefined);
-    this.morse.setEngine(kind);
+    this.morse.setEngine(kind, this.draftKey());
   }
 
   /**
@@ -2391,7 +2410,68 @@ export class ChatComposer {
   }
 
   protected onModePick(mode: string): void {
-    this.morse.setMode(mode);
+    this.morse.setMode(mode, this.draftKey());
+  }
+
+  /**
+   * The draft tab in front, if any: composition picks carry its key so the
+   * host persists them under the tab they belong to. A live session needs no
+   * key — its engine persists the choice itself.
+   */
+  private draftKey(): string | undefined {
+    const front = this.tabs.activeTab();
+    return front?.kind === 'session' && front.draft === true
+      ? this.tabs.composerKey()
+      : undefined;
+  }
+
+  /**
+   * Restores a draft tab's persisted composition into the host's draft memory,
+   * so the pickers show the last choice instead of the defaults. Each half is
+   * only sent while the host holds something else — and only when the saved
+   * value is still offered — so the effect settles instead of re-sending, and
+   * a stale card (an engine removed since) never warns on every tab switch.
+   */
+  private replayDraftCard(
+    key: string,
+    card: DraftCard,
+    state: SessionViewState,
+  ): void {
+    if (
+      card.engine !== undefined &&
+      card.engine !== state.engine &&
+      this.engines().some((engine) => engine.kind === card.engine)
+    ) {
+      this.morse.setEngine(card.engine, key);
+      return;
+    }
+    if (
+      card.mode !== undefined &&
+      card.mode !== state.mode &&
+      this.availableModes().some((mode) => mode.id === card.mode)
+    ) {
+      this.morse.setMode(card.mode, key);
+      return;
+    }
+    const model = state.model;
+    if (
+      card.model !== undefined &&
+      (model?.provider !== card.model.provider || model?.id !== card.model.id) &&
+      this.models().some(
+        (offered) =>
+          offered.provider === card.model?.provider && offered.id === card.model?.id,
+      )
+    ) {
+      this.morse.setModel(card.model.provider, card.model.id, key);
+      return;
+    }
+    if (
+      card.thinking !== undefined &&
+      card.thinking !== state.thinkingLevel &&
+      this.levels().includes(card.thinking)
+    ) {
+      this.morse.setThinkingLevel(card.thinking, key);
+    }
   }
 
   /**

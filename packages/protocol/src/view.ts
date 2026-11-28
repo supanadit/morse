@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  DraftCard,
   FrontendIdentity,
   HostCapabilities,
   InteractionRequest,
@@ -56,6 +57,14 @@ export interface SessionView {
   sessionsLoaded: boolean;
   /** Live agent sessions; a session can be working even while another is shown. */
   activity: SessionActivity[];
+  /**
+   * Draft tabs' compositions (engine, model, thinking, mode), by draft tab.
+   * Host-owned and persisted; a reload, reconnect or another device restores
+   * the pick instead of the default. Part of the view (not a side channel)
+   * so the first handshake carries it: side-channel listeners subscribe after
+   * the client already sent `client/ready`.
+   */
+  draftCards: Record<string, DraftCard>;
   /** Directories pi has sessions for; the browser host's project list. */
   projects: ProjectSummary[];
   pendingInteraction: InteractionRequest | null;
@@ -88,6 +97,7 @@ export function createInitialView(
     sessionsLoaded: false,
     sessionHasMore: {},
     activity: [],
+    draftCards: {},
     projects: [],
     pendingInteraction: null,
   };
@@ -158,6 +168,8 @@ export function reduceSessionView(view: SessionView, message: HostToClientMessag
       return { ...view, activity: [...message.payload.sessions] };
     case 'project/list':
       return { ...view, projects: [...message.payload.projects] };
+    case 'draft/cards':
+      return { ...view, draftCards: { ...message.payload.cards } };
     case 'interaction/request':
       return { ...view, pendingInteraction: message.payload };
     case 'interaction/dismiss':

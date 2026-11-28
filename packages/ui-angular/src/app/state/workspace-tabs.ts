@@ -1087,6 +1087,11 @@ export class WorkspaceTabs {
     }
     const closedSession = tab.kind === 'session' && tab.draft !== true;
     const cwd = tab.kind === 'session' ? tab.cwd : undefined;
+    // A draft tab's persisted composition dies with it: a later tab reusing
+    // the id starts from the defaults instead of inheriting a dead pick.
+    if (tab.kind === 'session' && tab.draft === true) {
+      this.morse.clearDraftCard(id);
+    }
     this.remove(this.doomedWith(id), index, chipOwner(tab));
     if (closedSession) {
       this.fallBackToEmptySession(cwd);
@@ -1534,6 +1539,9 @@ export class WorkspaceTabs {
       return;
     }
     this.drafts.rekey(activeDraft.id, session.id);
+    // The composition moved into the session's engine with the first prompt:
+    // the draft card dies here so a stale pick cannot replay over it later.
+    this.morse.clearDraftCard(activeDraft.id);
     // The draft's terminals belong to the session it just became.
     this.terminals.rekey(activeDraft.id, session.id);
     // The draft's queued follow-ups belong to the session it just became too.

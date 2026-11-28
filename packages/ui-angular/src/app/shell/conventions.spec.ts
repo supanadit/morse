@@ -212,4 +212,27 @@ describe('frontend conventions', () => {
     );
     expect(unscoped).toEqual([]);
   });
+
+  it('R-U9: the page queue store is only touched through the shared composer', () => {
+    // The queue has one rule: every item — a follow-up or a compaction today,
+    // any new kind tomorrow — enters through `ComposerSync` (which routes to
+    // the host when it owns the queue) and leaves through the drain. A second
+    // writer is how a scheduled compaction once sat in page memory forever
+    // while the host drained everything else: it bypassed the sync, the page
+    // drain was off by design, and nothing ever ran it. New queue traffic
+    // joins `SharedComposerPrompt` and the sync; new readers stay readers.
+    const allowed = new Set([
+      'state/workspace-tabs.ts',
+      'services/composer-sync.ts',
+      'services/queue-drain.ts',
+      'features/composer/composer.ts',
+    ]);
+    const intruders = FILES.filter(
+      (file) =>
+        file.path.endsWith('queued-prompts.ts') === false &&
+        !allowed.has(file.path) &&
+        /['"]\.\.?\/?([^'"]*\/)?queued-prompts['"]/.test(file.source),
+    ).map((file) => file.path);
+    expect(intruders).toEqual([]);
+  });
 });

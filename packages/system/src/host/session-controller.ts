@@ -31,6 +31,7 @@ import {
   type HostCapabilities,
   type HostCommand,
   type ControllerHostCommand,
+  type DraftCard,
   type HostToClientMessage,
   type InteractionResponse,
   type SessionActivity,
@@ -40,6 +41,7 @@ import {
 } from '@morse/protocol';
 import type { HostCommandHandler, NativeDialogs } from './native-dialogs.js';
 import type { ComposerHub } from './composer-hub.js';
+import type { DraftCardStore } from './draft-cards.js';
 import { describeError } from '../errors.js';
 import { BotWire, type Guarded } from './bot-wire.js';
 
@@ -86,6 +88,13 @@ export interface HostSessionServices {
    * is persisted there, never in a webview, so a reload cannot lose it.
    */
   composer?: ComposerHub;
+  /**
+   * Draft tabs' compositions (engine, model, thinking level, mode), persisted
+   * host-side. Both hosts provide it: a pick survives a reload, a reconnect
+   * or another device with the same tab, exactly like the queue. Without it
+   * the controller keeps picks in connection memory and they die with it.
+   */
+  draftCards?: DraftCardStore;
   /**
    * The pending questions shared by every client of this host. Optional: a host
    * with one frontend (VS Code) keeps them in its own controller. The browser
@@ -593,10 +602,10 @@ export class HostSessionController {
         await this.refreshModes();
         return;
       case 'engine/set':
-        await this.setEngine(message.payload.kind);
+        await this.setEngine(message.payload.kind, message.payload.draftKey);
         return;
       case 'mode/set':
-        await this.setMode(message.payload.mode);
+        await this.setMode(message.payload.mode, message.payload.draftKey);
         return;
       case 'project/list':
         await this.publishProjects();
@@ -607,10 +616,17 @@ export class HostSessionController {
         await this.enterDraft(workspaceOf(message.payload.path));
         return;
       case 'model/set':
-        await this.setModel(message.payload.provider, message.payload.id);
+        await this.setModel(
+          message.payload.provider,
+          message.payload.id,
+          message.payload.draftKey,
+        );
         return;
       case 'thinking/set':
-        await this.setThinkingLevel(message.payload.level);
+        await this.setThinkingLevel(message.payload.level, message.payload.draftKey);
+        return;
+      case 'draft/clear':
+        this.clearDraftCard(message.payload.draftKey);
         return;
       case 'interaction/respond':
         await this.respondToInteraction(message.payload);
@@ -816,12 +832,66 @@ export class HostSessionController {
   }
 
   /**
+   * Persists the draft tab's composition under its key, so the pick survives
+   * the connection that made it. Only explicit picks are written — a draft
+   * with no card keeps resolving the host's default engine, model and mode,
+   * exactly as before. Live sessions never reach here: their engine persists
+   * the choice itself.
+   */
+  private saveDraftCard(draftKey: string | undefined): void {
+    if (draftKey === undefined || this.activeKey !== undefined) {
+      return;
+    }
+    const store = this.options.services.draftCards;
+    if (store === undefined) {
+      return;
+    }
+    const card: DraftCard = {
+      ...(this.draftEngine === undefined ? {} : { engine: this.draftEngine }),
+      ...(this.draftModel === undefined
+        ? {}
+        : {
+            model: {
+              provider: this.draftModel.provider,
+              id: this.draftModel.id,
+              ...(this.draftModel.name === undefined ? {} : { name: this.draftModel.name }),
+            },
+          }),
+      ...(this.draftThinking === undefined ? {} : { thinking: this.draftThinking }),
+      ...(this.draftMode === undefined ? {} : { mode: this.draftMode }),
+    };
+    store.set(draftKey, card);
+    this.emitDraftCards();
+  }
+
+  /**
+   * Forgets one draft tab's composition (its tab closed) and tells every
+   * client, so a later tab reusing the id starts from the defaults.
+   */
+  private clearDraftCard(draftKey: string): void {
+    const store = this.options.services.draftCards;
+    if (store === undefined) {
+      return;
+    }
+    store.delete(draftKey);
+    this.emitDraftCards();
+  }
+
+  private emitDraftCards(): void {
+    const store = this.options.services.draftCards;
+    if (store === undefined) {
+      return;
+    }
+    this.options.emit({ type: 'draft/cards', payload: { cards: store.all() } });
+  }
+
+  /**
    * Switches the empty session to another installed engine. Everything that
    * belonged to the previous engine's catalog is dropped: its models, thinking
    * levels and modes are not comparable, and the first prompt must open under
    * the new engine's defaults until the reader picks again.
    */
-  private async setEngine(kind: string): Promise<void> {
+  private async setEngine(kind: string, draftKey?: string): Promise<void> {
     if (!this.isDraft || this.activeKey !== undefined) {
       this.options.emit(
         noticeMessage(
@@ -846,6 +916,7 @@ export class HostSessionController {
     this.draftThinking = undefined;
     this.draftMode = undefined;
     this.draftCatalog = undefined;
+    this.saveDraftCard(draftKey);
     this.clearAgentFailure();
     const ticket = ++this.engineRefresh;
     this.loadingEngine = true;
@@ -1662,7 +1733,7 @@ export class HostSessionController {
     return { key, gateway, items: this.options.transcripts.items(key) };
   }
 
-  private async setModel(provider: string, id: string): Promise<void> {
+  private async setModel(provider: string, id: string, draftKey?: string): Promise<void> {
     if (this.activeKey === undefined) {
       // Draft pick: shown as the pending model, applied to the session the
       // first prompt opens. Without a probe-cached catalog the name falls back
@@ -1672,6 +1743,7 @@ export class HostSessionController {
       );
       const picked = match ?? { provider, id, name: id };
       this.draftModel = picked;
+      this.saveDraftCard(draftKey);
       // pi reports thinking levels per *current* model, so the picker has to be
       // re-probed for the model the reader just chose before a session exists —
       // unless that model was probed before, in which case its levels are
@@ -1760,9 +1832,13 @@ export class HostSessionController {
     this.endThinkingLevelsRefresh(ticket);
   }
 
-  private async setThinkingLevel(level: SessionViewState['thinkingLevel']): Promise<void> {
+  private async setThinkingLevel(
+    level: SessionViewState['thinkingLevel'],
+    draftKey?: string,
+  ): Promise<void> {
     if (this.activeKey === undefined) {
       this.draftThinking = level;
+      this.saveDraftCard(draftKey);
       this.emitState();
       return;
     }
@@ -1779,7 +1855,7 @@ export class HostSessionController {
    * prompt opens; a running session switches through its own gateway. An id the
    * harness does not offer is refused instead of being sent blindly.
    */
-  private async setMode(mode: string): Promise<void> {
+  private async setMode(mode: string, draftKey?: string): Promise<void> {
     if (this.isDraft) {
       const offered = this.draftCatalog?.availableModes ?? [];
       if (!offered.some((option) => option.id === mode)) {
@@ -1793,6 +1869,7 @@ export class HostSessionController {
         return;
       }
       this.draftMode = mode;
+      this.saveDraftCard(draftKey);
       this.emitState();
       // The mode names the agent that will answer, and so the model the pickers
       // should name: the draft's catalog was read for the mode it left. Dropping
@@ -2486,6 +2563,9 @@ export class HostSessionController {
         this.options.emit({ type: 'composer/draft', payload: draft });
       }
     }
+    // And the draft tabs' compositions, so a reconnecting device restores the
+    // picks instead of the defaults.
+    this.emitDraftCards();
     // A device that joins while a question is already pending shows it in its
     // own single slot; the answer still goes to the session that asked.
     this.syncInteraction();

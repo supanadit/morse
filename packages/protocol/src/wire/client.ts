@@ -231,13 +231,13 @@ export interface ModesRefreshMessage extends ClientMessageBase {
  */
 export interface EngineSetMessage extends ClientMessageBase {
   type: 'engine/set';
-  payload: { kind: string };
+  payload: { kind: string; draftKey?: string };
 }
 
 /** Picks the named way of working for a draft or a running session. */
 export interface ModeSetMessage extends ClientMessageBase {
   type: 'mode/set';
-  payload: { mode: string };
+  payload: { mode: string; draftKey?: string };
 }
 
 export interface ProjectListRequestMessage extends ClientMessageBase {
@@ -252,12 +252,21 @@ export interface ProjectOpenMessage extends ClientMessageBase {
 
 export interface ModelSetMessage extends ClientMessageBase {
   type: 'model/set';
-  payload: { provider: string; id: string };
+  payload: { provider: string; id: string; draftKey?: string };
 }
 
 export interface ThinkingSetMessage extends ClientMessageBase {
   type: 'thinking/set';
-  payload: { level: ThinkingLevel };
+  payload: { level: ThinkingLevel; draftKey?: string };
+}
+
+/**
+ * Forgets a draft tab's persisted composition. Sent when its tab closes, so a
+ * later tab with the same id starts clean instead of inheriting a dead pick.
+ */
+export interface DraftClearMessage extends ClientMessageBase {
+  type: 'draft/clear';
+  payload: { draftKey: string };
 }
 
 export interface InteractionRespondMessage extends ClientMessageBase {
@@ -500,6 +509,7 @@ export type ClientToHostMessage =
   | ModeSetMessage
   | ModelSetMessage
   | ThinkingSetMessage
+  | DraftClearMessage
   | InteractionRespondMessage
   | HostCommandMessage
   | TerminalOpenMessage

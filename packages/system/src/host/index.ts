@@ -15,5 +15,6 @@ export * from './transcript-store.js';
 export * from './view-state.js';
 export * from './session-controller.js';
 export * from './composer-hub.js';
+export * from './draft-cards.js';
 export * from './interaction-hub.js';
 export * from './workbench-store.js';

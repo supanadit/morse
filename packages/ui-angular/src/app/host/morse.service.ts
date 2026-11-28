@@ -66,6 +66,8 @@ export class MorseService {
   private readonly composerStateListeners = new Set<(state: SharedComposerState) => void>();
   /** Listeners for the text another device is typing. */
   private readonly composerDraftListeners = new Set<(draft: SharedComposerDraft) => void>();
+  /** Draft tabs' persisted compositions, by draft tab (view-backed, so the handshake carries them). */
+  readonly draftCards = computed(() => this.view().draftCards);
   /** The wire version the host and this bundle agreed on. */
   readonly protocolVersion = computed(() => this.view().protocolVersion);
   /**
@@ -504,21 +506,26 @@ export class MorseService {
   }
 
   /** Picks the engine a new session starts in (only meaningful on a draft). */
-  setEngine(kind: string): void {
-    this.actions.setEngine(kind);
+  setEngine(kind: string, draftKey?: string): void {
+    this.actions.setEngine(kind, draftKey);
   }
 
   /** Picks the named way of working for the draft or the running session. */
-  setMode(mode: string): void {
-    this.actions.setMode(mode);
+  setMode(mode: string, draftKey?: string): void {
+    this.actions.setMode(mode, draftKey);
   }
 
-  setModel(provider: string, id: string): void {
-    this.actions.setModel(provider, id);
+  setModel(provider: string, id: string, draftKey?: string): void {
+    this.actions.setModel(provider, id, draftKey);
   }
 
-  setThinkingLevel(level: ThinkingLevel): void {
-    this.actions.setThinkingLevel(level);
+  setThinkingLevel(level: ThinkingLevel, draftKey?: string): void {
+    this.actions.setThinkingLevel(level, draftKey);
+  }
+
+  /** Forgets a draft tab's persisted composition when its tab closes. */
+  clearDraftCard(draftKey: string): void {
+    this.actions.clearDraftCard(draftKey);
   }
 
   respond(response: InteractionResponse): void {

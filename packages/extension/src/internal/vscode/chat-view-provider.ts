@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   ChatService,
   ComposerHub,
+  DraftCardStore,
   SessionRegistry,
   UnsupportedByHostError,
   describeError,
@@ -274,6 +275,23 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
         }
       });
       this.composerHub = hub;
+      // Reopens sessions with queued items, so the queue drains with no
+      // webview connected. Runs once: the hub persists the queue, and later
+      // connects only add broadcasts.
+      if (!this.queueWarmed) {
+        this.queueWarmed = true;
+        for (const state of hub.snapshot().states) {
+          if (state.queue.length === 0) {
+            continue;
+          }
+          void this.deps.registry.activate(state.sessionId).catch((error: unknown) => {
+            this.deps.logger.warn(
+              `The queued session ${state.sessionId} could not be reopened`,
+              error,
+            );
+          });
+        }
+      }
     }
     return this.composerHub;
   }
@@ -281,6 +299,24 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
   /** The host-owned queue entry every chat controller in this window shares. */
   private composerServices(): { composer: ComposerHub } {
     return { composer: this.composer() };
+  }
+
+  /**
+   * Draft tabs' compositions, persisted under the window's storage. One store
+   * for the window: every chat surface restores the same picks, and the queue
+   * keeps its rule — host-owned, never a webview's.
+   */
+  private draftCardsStore: DraftCardStore | undefined;
+  /** Warmed once: sessions with queued items reopen without a client. */
+  private queueWarmed = false;
+
+  /**
+   * The host-owned draft compositions every chat controller in this window
+   * shares.
+   */
+  private draftCardsServices(): { draftCards: DraftCardStore } {
+    this.draftCardsStore ??= new DraftCardStore(this.deps.workbenchDataDir, this.deps.logger);
+    return { draftCards: this.draftCardsStore };
   }
 
   /**
@@ -393,6 +429,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       registry: this.deps.registry,
       chat: this.deps.chat,
       ...this.composerServices(),
+      ...this.draftCardsServices(),
       ...this.mcpWatchOption(),
     };
 
@@ -600,6 +637,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       registry: this.deps.registry,
       chat: this.deps.chat,
       ...this.composerServices(),
+      ...this.draftCardsServices(),
       ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
@@ -743,6 +781,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       registry: this.deps.registry,
       chat: this.deps.chat,
       ...this.composerServices(),
+      ...this.draftCardsServices(),
       ...this.mcpWatchOption(),
     };
     const controller = new HostSessionController({
@@ -809,6 +848,7 @@ export class MorseChatViewProvider implements vscode.WebviewViewProvider {
       registry: this.deps.registry,
       chat: this.deps.chat,
       ...this.composerServices(),
+      ...this.draftCardsServices(),
     };
     const controller = new HostSessionController({
       services,

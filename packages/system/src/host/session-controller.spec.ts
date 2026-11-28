@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AgentEventListener,
   type AgentDiagnostic,
@@ -30,6 +33,7 @@ import {
   type TranscriptItem,
 } from '@morse/protocol';
 import { HostSessionController, type HostSessionServices } from './session-controller.js';
+import { DraftCardStore } from './draft-cards.js';
 import { InteractionHub } from './interaction-hub.js';
 import { bindTranscriptsToRegistry, SessionTranscriptStore } from './transcript-store.js';
 import type { SessionCatalog } from '../session/ports.js';
@@ -249,6 +253,7 @@ function connect(
   pinnedSessionId?: string,
   composer?: HostSessionServices['composer'],
   interactions?: InteractionHub,
+  draftCards?: HostSessionServices['draftCards'],
 ): HostSessionController {
   return new HostSessionController({
     services: {
@@ -256,6 +261,7 @@ function connect(
       chat,
       ...(composer ? { composer } : {}),
       ...(interactions ? { interactions } : {}),
+      ...(draftCards ? { draftCards } : {}),
     },
     capabilities: CAPABILITIES,
     emit: (message) => sink.push(message),
@@ -342,6 +348,8 @@ function harness(
     refreshConfig?: () => Promise<void>;
     /** Shared queue the compaction gate must talk to, when the host has one. */
     composer?: HostSessionServices['composer'];
+    /** Draft composition store the host persists picks into, when it has one. */
+    draftCards?: HostSessionServices['draftCards'];
     /** The host's view scope; the workspace under test unless a test says otherwise. */
     scope?: HostScopeOptions;
   } = {},
@@ -468,6 +476,8 @@ function harness(
     options.agentHint,
     undefined,
     options.composer,
+    undefined,
+    options.draftCards,
   );
   return {
     messages,
@@ -4497,5 +4507,68 @@ describe('HostSessionController rename and project delete', () => {
     expect(h.catalog.idsRequested).toEqual([]);
     expect(h.catalog.removed).toEqual([]);
     expect(notices(h.messages).some((text) => text.includes('not allowed'))).toBe(true);
+  });
+});
+
+describe('draft cards', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function cardHarness() {
+    const dataDir = mkdtempSync(join(tmpdir(), 'morse-draft-cards-'));
+    dirs.push(dataDir);
+    const store = new DraftCardStore(dataDir, silentLogger);
+    const h = harness({ draftCards: store, engines: [{ kind: 'pi' }] });
+    return { ...h, store };
+  }
+
+  it('persists a draft model pick under its tab and replays it on hello', async () => {
+    const h = cardHarness();
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'model/set',
+      payload: { provider: 'mock', id: 'plain', draftKey: 'draft-1' },
+    });
+
+    expect(h.store.all()).toMatchObject({ 'draft-1': { model: { provider: 'mock', id: 'plain' } } });
+    // A reconnecting device restores the pick from the hello snapshot.
+    const cards = h.messages.filter(
+      (message): message is Extract<HostToClientMessage, { type: 'draft/cards' }> =>
+        message.type === 'draft/cards',
+    );
+    expect(cards.at(-1)?.payload.cards['draft-1']?.model).toMatchObject({
+      provider: 'mock',
+      id: 'plain',
+    });
+  });
+
+  it('keeps an engine pick and clears a closed tab', async () => {
+    const h = cardHarness();
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'engine/set',
+      payload: { kind: 'pi', draftKey: 'draft-1' },
+    });
+    expect(h.store.all()['draft-1']).toMatchObject({ engine: 'pi' });
+
+    await h.controller.handleClientMessage({
+      type: 'draft/clear',
+      payload: { draftKey: 'draft-1' },
+    });
+    expect(h.store.all()).toEqual({});
+  });
+
+  it('writes nothing without a draft key', async () => {
+    const h = cardHarness();
+    await h.controller.start();
+    await h.controller.handleClientMessage({
+      type: 'thinking/set',
+      payload: { level: 'low' },
+    });
+    expect(h.store.all()).toEqual({});
   });
 });

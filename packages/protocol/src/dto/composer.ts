@@ -1,7 +1,22 @@
 import type { ChatPin, PromptImage } from './transcript.js';
+import type { ThinkingLevel } from './primitives.js';
 
 /** Why a shared session's queue stopped draining. */
 export type ComposerPauseReason = 'stopped' | 'failed';
+
+/**
+ * A draft tab's composition, as its reader left it: the engine, model,
+ * thinking level and mode the first prompt will run with. Host-owned and
+ * persisted (`draft-cards.json`), so a reload, a reconnect or another device
+ * with the same tab finds the pick instead of the default. Live sessions need
+ * no card: their engine persists the choice itself.
+ */
+export interface DraftCard {
+  engine?: string;
+  model?: { provider: string; id: string; name?: string };
+  thinking?: ThinkingLevel;
+  mode?: string;
+}
 
 /**
  * One follow-up waiting in the host-owned queue.

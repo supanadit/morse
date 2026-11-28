@@ -16,6 +16,14 @@ const DRAFTS_FILE = 'drafts.json';
  * action, and shared by every connected client.
  */
 const COMPOSER_FILE = 'composer.json';
+/**
+ * Draft tabs' compositions (engine, model, thinking, mode), keyed by draft tab.
+ * Written by the host on every draft pick and read back on hello, so a pick
+ * survives a reload, a reconnect or another device with the same tab — exactly
+ * like the queue, and for the same reason: nothing compositional lives in a
+ * client. Tiny: one small card per draft tab.
+ */
+const DRAFT_CARDS_FILE = 'draft-cards.json';
 
 /**
  * A layout is a handful of tab names and shell ids, so anything past a quarter
@@ -77,6 +85,16 @@ export function readComposer(dataDir: string): WorkbenchSnapshot | undefined {
 /** Writes the composer queues back, with the same atomic write and envelope guard. */
 export function saveComposer(dataDir: string, snapshot: unknown): boolean {
   return saveSlot(dataDir, COMPOSER_FILE, snapshot, DRAFTS_MAX_BYTES);
+}
+
+/** Draft tabs' persisted compositions, as last written. */
+export function readDraftCards(dataDir: string): WorkbenchSnapshot | undefined {
+  return readSlot(join(dataDir, DRAFT_CARDS_FILE), LAYOUT_MAX_BYTES);
+}
+
+/** Writes the draft cards back, with the same atomic write and envelope guard. */
+export function saveDraftCards(dataDir: string, snapshot: unknown): boolean {
+  return saveSlot(dataDir, DRAFT_CARDS_FILE, snapshot, LAYOUT_MAX_BYTES);
 }
 
 function readSlot(path: string, maxBytes: number): WorkbenchSnapshot | undefined {

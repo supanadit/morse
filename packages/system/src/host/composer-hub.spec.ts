@@ -306,4 +306,73 @@ describe('ComposerHub', () => {
       origin: '',
     });
   });
+
+  it('pauses a failed item instead of retrying it on every settle', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: false });
+    test.compact.mockRejectedValueOnce(new Error('engine blew up'));
+    test.hub.handle({
+      sessionId: 's1',
+      action: 'enqueue',
+      item: { text: 'Compact context', images: [], pins: [], compaction: {} },
+    });
+    await settle();
+
+    expect(test.compact).toHaveBeenCalledTimes(1);
+    // The item stays at the head, the queue pauses, and the reader is told —
+    // the next settle must not silently retry it.
+    expect(test.stateOf('s1')?.queue.map((item) => item.text)).toEqual(['Compact context']);
+    expect(test.stateOf('s1')?.paused).toBe('failed');
+    expect(
+      test.emitted.some(
+        (message) =>
+          message.type === 'notice' &&
+          message.payload.level === 'error' &&
+          message.payload.text.includes('failed to run'),
+      ),
+    ).toBe(true);
+
+    test.event('s1', runEnd('settled'));
+    await settle();
+    expect(test.compact).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits without pausing when the session is not open yet', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    test.states.set('s1', { streaming: false });
+    test.prompt.mockResolvedValueOnce({ accepted: false, reason: 'no-session' });
+    test.hub.handle({ sessionId: 's1', action: 'enqueue', item: input('next') });
+    await settle();
+
+    // Still queued, explicitly not paused: opening the session drains it.
+    expect(test.stateOf('s1')?.queue.map((item) => item.text)).toEqual(['next']);
+    expect(test.stateOf('s1')?.paused).toBeUndefined();
+    expect(
+      test.emitted.some(
+        (message) => message.type === 'notice' && message.payload.text.includes('not open'),
+      ),
+    ).toBe(true);
+  });
+
+  it('treats a compaction against a closed session as a wait, not a failure', async () => {
+    const test = setup();
+    dir = test.dataDir;
+    hub = test.hub;
+    const { AgentUnavailableError } = await import('../errors.js');
+    test.states.set('s1', { streaming: false });
+    test.compact.mockRejectedValueOnce(new AgentUnavailableError('Session s1 is no longer open.'));
+    test.hub.handle({
+      sessionId: 's1',
+      action: 'enqueue',
+      item: { text: 'Compact context', images: [], pins: [], compaction: {} },
+    });
+    await settle();
+
+    expect(test.stateOf('s1')?.queue.map((item) => item.text)).toEqual(['Compact context']);
+    expect(test.stateOf('s1')?.paused).toBeUndefined();
+  });
 });

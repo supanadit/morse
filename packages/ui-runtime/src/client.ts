@@ -113,11 +113,16 @@ export interface MorseActions {
   refreshModes(): void;
   openProject(path: string): void;
   /** Picks the engine a new session starts in; only meaningful on a draft. */
-  setEngine(kind: string): void;
+  setEngine(kind: string, draftKey?: string): void;
   /** Picks a mode for the draft or the running session. */
-  setMode(mode: string): void;
-  setModel(provider: string, id: string): void;
-  setThinkingLevel(level: ThinkingLevel): void;
+  setMode(mode: string, draftKey?: string): void;
+  setModel(provider: string, id: string, draftKey?: string): void;
+  setThinkingLevel(level: ThinkingLevel, draftKey?: string): void;
+  /**
+   * Forgets a draft tab's persisted composition. Sent when its tab closes, so
+   * a later tab reusing the id starts from the defaults.
+   */
+  clearDraftCard(draftKey: string): void;
   respond(response: InteractionResponse): void;
   /** Starts a shell for the bottom panel's terminal, streamed as it writes. */
   openTerminal(terminalId: string, options?: { cwd?: string; cols?: number; rows?: number }): void;
@@ -368,10 +373,25 @@ export function createMorseClient(options: MorseClientOptions): MorseClient {
     refreshModels: () => send({ type: 'models/refresh', payload: {} }),
     refreshModes: () => send({ type: 'modes/refresh', payload: {} }),
     openProject: (path) => send({ type: 'project/open', payload: { path } }),
-    setEngine: (kind) => send({ type: 'engine/set', payload: { kind } }),
-    setMode: (mode) => send({ type: 'mode/set', payload: { mode } }),
-    setModel: (provider, id) => send({ type: 'model/set', payload: { provider, id } }),
-    setThinkingLevel: (level) => send({ type: 'thinking/set', payload: { level } }),
+    setEngine: (kind, draftKey) =>
+      send({
+        type: 'engine/set',
+        payload: draftKey === undefined ? { kind } : { kind, draftKey },
+      }),
+    setMode: (mode, draftKey) =>
+      send({ type: 'mode/set', payload: draftKey === undefined ? { mode } : { mode, draftKey } }),
+    setModel: (provider, id, draftKey) =>
+      send({
+        type: 'model/set',
+        payload:
+          draftKey === undefined ? { provider, id } : { provider, id, draftKey },
+      }),
+    setThinkingLevel: (level, draftKey) =>
+      send({
+        type: 'thinking/set',
+        payload: draftKey === undefined ? { level } : { level, draftKey },
+      }),
+    clearDraftCard: (draftKey) => send({ type: 'draft/clear', payload: { draftKey } }),
     respond: (response) => send({ type: 'interaction/respond', payload: response }),
     openTerminal: (terminalId, terminalOptions) =>
       send({ type: 'terminal/open', payload: { terminalId, ...terminalOptions } }),
